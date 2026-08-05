@@ -3,28 +3,35 @@ import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import type { CRUD, Plan } from "../Plan.ts";
 import { Cli } from "./Cli.ts";
+import { NonInteractiveTerminal } from "./CliKit/errors.ts";
+import { ansiFg, colorsEnabled, theme } from "./CliKit/index.ts";
+import { actionStyle } from "./views/statusStyle.ts";
 import type { ApplyEvent, ApplyStatus } from "./Event.ts";
 import { formatModeNote } from "./ModeTag.ts";
 
 const ESC = "\x1b[";
 const RESET = `${ESC}0m`;
-const useColor = process.stdout.hasColors?.() ?? !!process.stdout.isTTY;
+// Shared with every other non-ink output path — notably it honors
+// FORCE_COLOR, so lines emitted from the piped dev sidecar keep their color.
+const useColor = colorsEnabled();
 const c = (code: string, s: string) =>
   useColor ? `${ESC}${code}m${s}${RESET}` : s;
+const hex = (color: string) => (s: string) =>
+  useColor ? `${ansiFg(color)}${s}${RESET}` : s;
 const dim = (s: string) => c("2", s);
 const bold = (s: string) => c("1", s);
-const red = (s: string) => c("31", s);
-const green = (s: string) => c("32", s);
-const yellow = (s: string) => c("33", s);
-const blue = (s: string) => c("34", s);
-const magenta = (s: string) => c("35", s);
-const cyan = (s: string) => c("36", s);
+const red = hex(theme.color.danger);
+const green = hex(theme.color.success);
+const yellow = hex(theme.color.warning);
+const blue = hex(theme.color.accent);
+const cyan = hex(theme.color.info);
 
+// noop stays terminal-dim rather than brand-muted so it recedes in plain logs
 const actionColor: Record<CRUD["action"], (s: string) => string> = {
-  create: green,
-  update: yellow,
-  replace: magenta,
-  delete: red,
+  create: hex(actionStyle.create.color),
+  update: hex(actionStyle.update.color),
+  replace: hex(actionStyle.replace.color),
+  delete: hex(actionStyle.delete.color),
   noop: dim,
 };
 
@@ -124,10 +131,13 @@ export const LoggingCli = Layer.succeed(
     approvePlan: (plan) =>
       Effect.gen(function* () {
         for (const line of formatPlanLines(plan)) yield* Console.log(line);
-        yield* Console.log(
-          `\n${yellow("Non-interactive terminal detected.")} Pass ${bold("--yes")} to approve, or set ${bold("ALCHEMY_TUI=1")} for the interactive UI.`,
+        return yield* Effect.die(
+          new NonInteractiveTerminal({
+            operation: "approve deployment plan",
+            message:
+              "Cannot approve this operation without terminal input. Pass --yes to continue.",
+          }),
         );
-        return false;
       }),
     displayPlan: (plan) =>
       Effect.gen(function* () {

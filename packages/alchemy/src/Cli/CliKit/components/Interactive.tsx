@@ -1,0 +1,604 @@
+/** @jsxImportSource react */
+import { useInput, useStdout } from "ink";
+import { type JSX, useEffect, useRef, useState } from "react";
+import type { Choice, CycleChoice } from "../types.ts";
+import { theme } from "../theme.ts";
+import { copyToClipboard, truncate } from "../terminal.ts";
+import { useFocus } from "./Application.tsx";
+import { useCliEnvironment, useGlyphs, useKeyGlyphs } from "./Environment.tsx";
+import { KeyBar, Spinner } from "./Feedback.tsx";
+import { Box } from "./Layout.tsx";
+import { Link, Text } from "./Typography.tsx";
+
+export interface TerminalKey {
+  readonly up: boolean;
+  readonly down: boolean;
+  readonly left: boolean;
+  readonly right: boolean;
+  readonly home: boolean;
+  readonly end: boolean;
+  readonly pageUp: boolean;
+  readonly pageDown: boolean;
+  readonly enter: boolean;
+  readonly escape: boolean;
+  readonly backspace: boolean;
+  readonly delete: boolean;
+  readonly tab: boolean;
+  readonly shift: boolean;
+  readonly ctrl: boolean;
+  readonly meta: boolean;
+}
+
+/** Backend facade for custom screens; callers never need to import Ink. */
+export const useTerminalInput = (
+  handler: (input: string, key: TerminalKey) => void,
+  options?: { readonly active?: boolean },
+) => {
+  const focused = useFocus();
+  return useInput(
+    (input, key) =>
+      handler(input, {
+        up: key.upArrow,
+        down: key.downArrow,
+        left: key.leftArrow,
+        right: key.rightArrow,
+        home: key.home,
+        end: key.end,
+        pageUp: key.pageUp,
+        pageDown: key.pageDown,
+        enter: key.return,
+        escape: key.escape,
+        backspace: key.backspace,
+        delete: key.delete,
+        tab: key.tab,
+        shift: key.shift,
+        ctrl: key.ctrl,
+        meta: key.meta,
+      }),
+    { isActive: options?.active ?? focused },
+  );
+};
+
+export const useTerminalSize = () => {
+  const { columns, rows } = useCliEnvironment();
+  return { columns, rows };
+};
+
+export const useListNavigation = (length: number, initialIndex = 0) => {
+  const [cursor, setCursor] = useState(initialIndex);
+  const clamped = Math.max(0, Math.min(cursor, Math.max(0, length - 1)));
+  const move = (delta: number) =>
+    setCursor((current) =>
+      length === 0 ? 0 : (current + delta + length) % length,
+    );
+  return { cursor: clamped, move, setCursor } as const;
+};
+
+export interface MenuProps<Value> {
+  readonly choices: ReadonlyArray<Choice<Value>>;
+  readonly cursor: number;
+  readonly selected?: ReadonlySet<number>;
+  readonly visibleCount?: number;
+  readonly empty?: string;
+}
+
+/** Pure menu presentation used by select prompts and custom applications. */
+export const Menu = <Value,>({
+  choices,
+  cursor,
+  selected,
+  visibleCount = 12,
+  empty = "No choices.",
+}: MenuProps<Value>): JSX.Element => {
+  const glyphs = useGlyphs();
+  if (choices.length === 0) return <Text tone="muted">{empty}</Text>;
+  const count = Math.max(1, visibleCount);
+  const start = Math.max(
+    0,
+    Math.min(cursor - Math.floor(count / 2), choices.length - count),
+  );
+  const end = Math.min(choices.length, start + count);
+  return (
+    <Box flexDirection="column">
+      {start > 0 ? (
+        <Text tone="muted">
+          {" "}
+          {glyphs.overflowUp} {start} more
+        </Text>
+      ) : null}
+      {choices.slice(start, end).map((choice, offset) => {
+        const index = start + offset;
+        const focused = index === cursor;
+        const checked = selected?.has(index);
+        const disabled =
+          choice.disabled !== undefined && choice.disabled !== false;
+        return (
+          <Box key={index} gap={1}>
+            <Text color={focused ? theme.color.accentBright : undefined}>
+              {focused ? glyphs.pointer : " "}
+            </Text>
+            <Text
+              color={
+                checked
+                  ? theme.color.success
+                  : focused
+                    ? theme.color.accentBright
+                    : undefined
+              }
+              dimColor={disabled}
+            >
+              {selected === undefined
+                ? focused
+                  ? glyphs.selected
+                  : glyphs.unselected
+                : checked
+                  ? glyphs.checked
+                  : glyphs.unchecked}
+            </Text>
+            <Box flexDirection="column" flexGrow={1}>
+              <Text bold={focused} dimColor={disabled}>
+                {choice.label}
+              </Text>
+              {choice.description === undefined ? null : (
+                <Text tone="muted" wrap="truncate-end">
+                  {choice.description}
+                </Text>
+              )}
+            </Box>
+            {typeof choice.disabled === "string" ? (
+              <Text tone="muted">{choice.disabled}</Text>
+            ) : null}
+          </Box>
+        );
+      })}
+      {end < choices.length ? (
+        <Text tone="muted">
+          {" "}
+          {glyphs.overflowDown} {choices.length - end} more
+        </Text>
+      ) : null}
+    </Box>
+  );
+};
+
+export interface TextFieldProps {
+  readonly placeholder?: string;
+  readonly initialValue?: string;
+  readonly value?: string;
+  readonly mask?: string;
+  readonly onSubmit: (value: string) => void;
+  readonly onChange?: (value: string) => void;
+  readonly onCancel?: () => void;
+  readonly active?: boolean;
+}
+
+/** Single-line editor with insertion, deletion, home/end and cursor movement. */
+export const TextField = ({
+  placeholder,
+  initialValue = "",
+  value: controlledValue,
+  mask,
+  onSubmit,
+  onChange,
+  onCancel,
+  active,
+}: TextFieldProps) => {
+  const focused = useFocus();
+  const [internalValue, setInternalValue] = useState(initialValue);
+  const value = controlledValue ?? internalValue;
+  const [cursor, setCursor] = useState(initialValue.length);
+  useEffect(() => {
+    setCursor((current) => Math.min(current, value.length));
+  }, [value.length]);
+  const update = (next: string, nextCursor: number) => {
+    if (controlledValue === undefined) setInternalValue(next);
+    setCursor(Math.max(0, Math.min(next.length, nextCursor)));
+    onChange?.(next);
+  };
+  useTerminalInput(
+    (input, key) => {
+      if (key.enter) onSubmit(value);
+      else if (key.escape) onCancel?.();
+      else if (key.left) setCursor((current) => Math.max(0, current - 1));
+      else if (key.right)
+        setCursor((current) => Math.min(value.length, current + 1));
+      // Most terminals send DEL (0x7f) for Backspace. Ink exposes that as
+      // `key.delete`, while Ctrl+H is exposed as `key.backspace`.
+      else if ((key.backspace || key.delete) && cursor > 0)
+        update(value.slice(0, cursor - 1) + value.slice(cursor), cursor - 1);
+      else if (key.ctrl && input === "d" && cursor < value.length)
+        update(value.slice(0, cursor) + value.slice(cursor + 1), cursor);
+      else if (key.home) setCursor(0);
+      else if (key.end) setCursor(value.length);
+      else if (key.ctrl && input === "a") setCursor(0);
+      else if (key.ctrl && input === "e") setCursor(value.length);
+      else if (
+        input.length > 0 &&
+        !key.ctrl &&
+        !key.meta &&
+        !key.escape &&
+        !key.tab &&
+        !key.up &&
+        !key.down
+      ) {
+        update(
+          value.slice(0, cursor) + input + value.slice(cursor),
+          cursor + input.length,
+        );
+      }
+    },
+    { active: active ?? focused },
+  );
+  const shown = mask === undefined ? value : mask.repeat(value.length);
+  if (shown.length === 0) {
+    return (
+      <Text>
+        <Text inverse> </Text>
+        {placeholder === undefined ? null : (
+          <Text tone="muted">{placeholder}</Text>
+        )}
+      </Text>
+    );
+  }
+  return (
+    <Text>
+      {shown.slice(0, cursor)}
+      <Text inverse>{shown[cursor] ?? " "}</Text>
+      {shown.slice(cursor + 1)}
+    </Text>
+  );
+};
+
+export interface CycleListProps<State> {
+  readonly choices: ReadonlyArray<CycleChoice<State>>;
+  readonly cursor: number;
+  readonly indices: ReadonlyArray<number>;
+  readonly visibleCount?: number;
+}
+
+const stateColor = (
+  variant: CycleChoice<unknown>["states"][number]["variant"],
+) =>
+  variant === undefined || variant === "neutral"
+    ? undefined
+    : theme.color[variant === "error" ? "danger" : variant];
+
+export const CycleList = <State,>({
+  choices,
+  cursor,
+  indices,
+  visibleCount = 12,
+}: CycleListProps<State>) => {
+  const glyphs = useGlyphs();
+  const count = Math.max(1, visibleCount);
+  const start = Math.max(
+    0,
+    Math.min(cursor - Math.floor(count / 2), choices.length - count),
+  );
+  const end = Math.min(choices.length, start + count);
+  return (
+    <Box flexDirection="column">
+      {start > 0 ? (
+        <Text tone="muted">
+          {" "}
+          {glyphs.overflowUp} {start} more
+        </Text>
+      ) : null}
+      {choices.slice(start, end).map((choice, offset) => {
+        const index = start + offset;
+        const state = choice.states[indices[index] ?? 0];
+        const focused = index === cursor;
+        const color = stateColor(state?.variant);
+        return (
+          <Box key={index} gap={1}>
+            <Text color={focused ? theme.color.accentBright : undefined}>
+              {focused ? glyphs.pointer : " "}
+            </Text>
+            <Text color={color} dimColor={color === undefined}>
+              {state?.icon ?? glyphs.bullet}
+            </Text>
+            <Text
+              bold={focused}
+              color={focused ? theme.color.accentBright : undefined}
+            >
+              {choice.label}
+            </Text>
+            {state?.label === undefined ? null : (
+              <Text color={color}>{state.label}</Text>
+            )}
+            {choice.description === undefined ? null : (
+              <Text tone="muted">({choice.description})</Text>
+            )}
+          </Box>
+        );
+      })}
+      {end < choices.length ? (
+        <Text tone="muted">
+          {" "}
+          {glyphs.overflowDown} {choices.length - end} more
+        </Text>
+      ) : null}
+    </Box>
+  );
+};
+
+export const useCycleNavigation = (stateCounts: ReadonlyArray<number>) => {
+  const { cursor, move, setCursor } = useListNavigation(stateCounts.length);
+  const [indices, setIndices] = useState<ReadonlyArray<number>>(() =>
+    stateCounts.map(() => 0),
+  );
+  const cycle = (delta: number) =>
+    setIndices((current) =>
+      current.map((value, index) => {
+        if (index !== cursor) return value;
+        const count = stateCounts[index] ?? 0;
+        return count <= 0 ? 0 : (value + delta + count) % count;
+      }),
+    );
+  return { cursor, indices, move, setCursor, cycle } as const;
+};
+
+export interface ExternalWaitProps {
+  readonly message: string;
+  readonly waitingLabel: string;
+  readonly url?: string;
+  readonly openFailed?: boolean;
+  readonly inputLabel: string;
+  readonly placeholder?: string;
+  readonly validate?: (value: string) => string | Error | undefined;
+  readonly onSubmit: (value: string) => void;
+  readonly onCancel: () => void;
+}
+
+export const SearchField = ({
+  value,
+  onChange,
+  onCancel,
+  placeholder = "filter",
+  active,
+}: {
+  readonly value: string;
+  readonly onChange: (value: string) => void;
+  readonly onCancel?: () => void;
+  readonly placeholder?: string;
+  readonly active?: boolean;
+}) => (
+  <Box gap={1}>
+    <Text tone="muted">Filter:</Text>
+    <TextField
+      value={value}
+      placeholder={placeholder}
+      active={active}
+      onChange={onChange}
+      onCancel={onCancel}
+      onSubmit={() => undefined}
+    />
+  </Box>
+);
+
+export const InlineConfirm = ({
+  message,
+  initialValue = false,
+  active,
+  onSubmit,
+  onCancel,
+}: {
+  readonly message: string;
+  readonly initialValue?: boolean;
+  readonly active?: boolean;
+  readonly onSubmit: (value: boolean) => void;
+  readonly onCancel?: () => void;
+}) => {
+  const focused = useFocus();
+  const [value, setValue] = useState(initialValue);
+  useTerminalInput(
+    (input, key) => {
+      if (key.escape) onCancel?.();
+      else if (key.left || key.right || key.tab)
+        setValue((current) => !current);
+      else if (key.enter) onSubmit(value);
+      else if (input.toLowerCase() === "y") onSubmit(true);
+      else if (input.toLowerCase() === "n") onSubmit(false);
+    },
+    { active: active ?? focused },
+  );
+  return (
+    <Box flexDirection="column">
+      <Text bold>{message}</Text>
+      <BooleanChoice value={value} />
+    </Box>
+  );
+};
+
+export const BooleanChoice = ({ value }: { readonly value: boolean }) => (
+  <Box gap={1}>
+    <Text
+      bold={value}
+      color={value ? theme.color.onAccent : undefined}
+      backgroundColor={value ? theme.color.accentMuted : undefined}
+    >
+      {" Yes "}
+    </Text>
+    <Text
+      bold={!value}
+      color={!value ? theme.color.onAccent : undefined}
+      backgroundColor={!value ? theme.color.accentMuted : undefined}
+    >
+      {" No "}
+    </Text>
+  </Box>
+);
+
+/** Browser/OAuth waiting screen with URL controls and manual-entry fallback. */
+export const ExternalWait = ({
+  message,
+  waitingLabel,
+  url,
+  openFailed = false,
+  inputLabel,
+  placeholder,
+  validate,
+  onSubmit,
+  onCancel,
+}: ExternalWaitProps) => {
+  const { stdout } = useStdout();
+  const glyphs = useGlyphs();
+  const keyGlyphs = useKeyGlyphs();
+  const [manual, setManual] = useState(false);
+  const [showFull, setShowFull] = useState(false);
+  const [copied, setCopied] = useState(false);
+  const [error, setError] = useState<string>();
+  const copiedTimer = useRef<ReturnType<typeof setTimeout> | undefined>(
+    undefined,
+  );
+  useEffect(
+    () => () => {
+      clearTimeout(copiedTimer.current);
+    },
+    [],
+  );
+  const { columns } = useTerminalSize();
+  // Ctrl+C is handled centrally by the screen runner (InkRuntime.run).
+  useTerminalInput((input, key) => {
+    if (manual) {
+      if (key.escape) {
+        setError(undefined);
+        setManual(false);
+      }
+      return;
+    }
+    if (key.enter) setManual(true);
+    else if (key.escape) onCancel();
+    else if (input === "u") setShowFull((current) => !current);
+    else if (input === "c" && url !== undefined) {
+      copyToClipboard(url, stdout ?? process.stdout);
+      setCopied(true);
+      clearTimeout(copiedTimer.current);
+      copiedTimer.current = setTimeout(() => setCopied(false), 2000);
+    }
+  });
+  if (manual) {
+    return (
+      <PromptFrame
+        message={inputLabel}
+        error={error}
+        keys={[[keyGlyphs.escape, "back to waiting"]]}
+      >
+        <TextField
+          placeholder={placeholder}
+          onCancel={() => {
+            setError(undefined);
+            setManual(false);
+          }}
+          onChange={() => setError(undefined)}
+          onSubmit={(value) => {
+            const problem = validate?.(value);
+            if (problem !== undefined) {
+              setError(problem instanceof Error ? problem.message : problem);
+            } else {
+              onSubmit(value);
+            }
+          }}
+        />
+      </PromptFrame>
+    );
+  }
+  return (
+    <PromptFrame
+      message={message}
+      keys={[
+        [keyGlyphs.enter, "enter code manually"],
+        ...(url === undefined
+          ? []
+          : ([
+              ["c", copied ? `${glyphs.success} copied` : "copy URL"],
+              ["u", showFull ? "hide full URL" : "show full URL"],
+            ] as const)),
+        [keyGlyphs.escape, "cancel"],
+      ]}
+    >
+      <Box flexDirection="column">
+        <Spinner label={waitingLabel} />
+        {openFailed ? (
+          <Text tone="warning">
+            {glyphs.warning} Could not open the browser. Copy and open the URL
+            manually.
+          </Text>
+        ) : null}
+        {url === undefined ? null : (
+          <Link href={url}>
+            {showFull ? url : truncate(url, Math.max(24, columns - 8))}
+          </Link>
+        )}
+      </Box>
+    </PromptFrame>
+  );
+};
+
+export const PromptFrame = ({
+  message,
+  children,
+  error,
+  keys,
+}: {
+  readonly message: string;
+  readonly children: JSX.Element;
+  readonly error?: string;
+  readonly keys?: ReadonlyArray<readonly [string, string]>;
+}) => {
+  const glyphs = useGlyphs();
+  return (
+    <Box flexDirection="column" gap={1}>
+      <Text>
+        <Text color={theme.color.accent}>{glyphs.active}</Text>{" "}
+        <Text bold>{message}</Text>
+      </Text>
+      <Box paddingLeft={2} flexDirection="column">
+        {children}
+      </Box>
+      {error === undefined ? null : (
+        <Box paddingLeft={2}>
+          <Text color={theme.color.danger}>
+            {glyphs.error} {error}
+          </Text>
+        </Box>
+      )}
+      {keys === undefined ? null : (
+        <Box paddingLeft={2}>
+          <KeyBar keys={keys} />
+        </Box>
+      )}
+    </Box>
+  );
+};
+
+export const filterChoices = <Value,>(
+  choices: ReadonlyArray<Choice<Value>>,
+  query: string,
+) => {
+  const normalized = query.trim().toLowerCase();
+  const indexed = choices.map((choice, index) => ({ choice, index }));
+  return normalized === ""
+    ? indexed
+    : indexed.filter(({ choice }) =>
+        `${choice.label} ${choice.description ?? ""}`
+          .toLowerCase()
+          .includes(normalized),
+      );
+};
+
+/** Stable selected-index set for multiselect widgets. */
+export const useSelectedChoices = <Value,>(
+  choices: ReadonlyArray<Choice<Value>>,
+  initialValues: ReadonlyArray<Value>,
+) => {
+  return useState<ReadonlySet<number>>(
+    () =>
+      new Set(
+        initialValues.flatMap((value) => {
+          const index = choices.findIndex((choice) => choice.value === value);
+          return index === -1 || choices[index]?.disabled ? [] : [index];
+        }),
+      ),
+  );
+};

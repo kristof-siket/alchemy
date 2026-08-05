@@ -22,13 +22,13 @@ import { loadConfigProvider } from "../../Util/ConfigProvider.ts";
 import { fileLogger } from "../../Util/FileLogger.ts";
 
 import {
-  dryRun as dryRunFlag,
+  config,
   envFile,
+  exitDeclined,
   force,
   importStack,
   instrumentCommand,
   profile,
-  script,
   stage,
   yes,
 } from "./_shared.ts";
@@ -64,6 +64,11 @@ const adopt = Flag.boolean("adopt").pipe(
     "Adopt pre-existing cloud resources that conflict with this stack instead of failing. " +
       "Useful for re-importing infrastructure into a fresh state store.",
   ),
+  Flag.withDefault(false),
+);
+
+const destroyPreview = Flag.boolean("destroy").pipe(
+  Flag.withDescription("Preview destruction of the selected stack and stage"),
   Flag.withDefault(false),
 );
 
@@ -137,7 +142,7 @@ export const execStack = Effect.fn(function* ({
         if (!yes && hasChanges) {
           const approved = yield* cli.approvePlan(updatePlan);
           if (!approved) {
-            return;
+            return yield* exitDeclined;
           }
         }
         // In dev, a failed apply must not drain the keep-alive below:
@@ -176,9 +181,8 @@ export const execStack = Effect.fn(function* ({
 export const deployCommand = Command.make(
   "deploy",
   {
-    dryRun: dryRunFlag,
     force,
-    main: script,
+    main: config,
     envFile,
     stage,
     yes,
@@ -186,13 +190,12 @@ export const deployCommand = Command.make(
     adopt,
   },
   instrumentCommand("deploy", stackSpanAttrs)(execStack),
-);
+).pipe(Command.withDescription("Deploy a stack"));
 
 export const destroyCommand = Command.make(
   "destroy",
   {
-    dryRun: dryRunFlag,
-    main: script,
+    main: config,
     envFile,
     stage,
     yes,
@@ -207,15 +210,16 @@ export const destroyCommand = Command.make(
       destroy: true,
     }),
   ),
-);
+).pipe(Command.withDescription("Destroy a deployed stack"));
 
 export const planCommand = Command.make(
   "plan",
   {
-    main: script,
+    main: config,
     envFile,
     stage,
     profile,
+    destroy: destroyPreview,
   },
   instrumentCommand(
     "plan",
@@ -223,8 +227,7 @@ export const planCommand = Command.make(
   )((args) =>
     execStack({
       ...args,
-      // plan is the same as deploy with dryRun always set to true
       dryRun: true,
     }),
   ),
-);
+).pipe(Command.withDescription("Preview changes to a stack"));

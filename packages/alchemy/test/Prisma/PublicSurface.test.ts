@@ -1,6 +1,6 @@
 import * as Prisma from "@/Prisma";
 import * as PrismaPackage from "alchemy/Prisma";
-import * as NodeServices from "@effect/platform-node/NodeServices";
+import { NodeServices } from "alchemy/Util/PlatformServices";
 import { describe, expect, it } from "alchemy-test";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
@@ -43,9 +43,8 @@ const publicExports = [
   "isCompute",
   "KNOWN_REGION_IDS",
   "REGIONS",
-  "PRISMA_API_TOKEN_ENV",
-  "PRISMA_SERVICE_TOKEN_ENV",
   "PRISMA_AUTH_PROVIDER_NAME",
+  "PrismaStoredCredentials",
   "PrismaApiDecodeError",
   "PrismaApiError",
   "PrismaClientLive",

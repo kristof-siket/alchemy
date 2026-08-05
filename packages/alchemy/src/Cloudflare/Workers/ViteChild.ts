@@ -9,6 +9,7 @@ import * as ChildProcessSpawner from "effect/unstable/process/ChildProcessSpawne
 import { fileURLToPath } from "node:url";
 import * as NodeV8 from "node:v8";
 import { BundleError } from "../../Bundle/Bundle.ts";
+import { pipedColorEnv } from "../../Cli/CliKit/index.ts";
 import { registerExitKill } from "../../Util/killProcessGroup.ts";
 import { transformTypesFlags } from "../../Util/Node.ts";
 import { unwrapRedacted } from "../../Util/index.ts";
@@ -150,6 +151,7 @@ export const runViteBuildChild = (
               ],
           {
             cwd: config.rootDir,
+            env: pipedColorEnv(),
             stdin: Stream.succeed(serializedConfig),
             stdout: "pipe",
             stderr: "pipe",

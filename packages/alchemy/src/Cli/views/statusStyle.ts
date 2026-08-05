@@ -1,0 +1,67 @@
+/**
+ * The one mapping from plan actions / apply statuses to brand colors and
+ * icons — shared by the plan tree, the live progress view, and the plain
+ * logging CLI so an action never renders two different hues.
+ */
+import type { ApplyStatus } from "../Event.ts";
+import { theme } from "../CliKit/index.ts";
+
+/** Every verb a plan row can carry (resource CRUD + namespace/action rollups). */
+export type PlanAction =
+  | "create"
+  | "update"
+  | "delete"
+  | "replace"
+  | "noop"
+  | "mixed"
+  | "run";
+
+export interface ActionStyle {
+  readonly color: string;
+  readonly icon: string;
+}
+
+export const actionStyle: Record<PlanAction, ActionStyle> = {
+  create: { color: theme.color.success, icon: "+" },
+  update: { color: theme.color.warning, icon: "~" },
+  delete: { color: theme.color.danger, icon: "-" },
+  replace: { color: theme.color.warning, icon: "!" },
+  noop: { color: theme.color.muted, icon: "•" },
+  mixed: { color: theme.color.info, icon: "*" },
+  run: { color: theme.color.info, icon: "λ" },
+};
+
+export const applyStatusColor = (
+  status: ApplyStatus | "no change",
+): string | undefined => {
+  switch (status) {
+    case "no change":
+    case "pending":
+    case "retained":
+    case "skipped":
+      return theme.color.muted;
+    case "creating":
+    case "created":
+      return theme.color.success;
+    case "updating":
+    case "updated":
+      return theme.color.warning;
+    case "deleting":
+    case "deleted":
+      return theme.color.danger;
+    case "running":
+    case "ran":
+      return theme.color.info;
+    case "fail":
+      return theme.color.danger;
+    default:
+      return undefined;
+  }
+};
+
+export const isInProgress = (status: ApplyStatus): boolean =>
+  status === "pending" ||
+  status === "creating" ||
+  status === "updating" ||
+  status === "deleting" ||
+  status === "running";

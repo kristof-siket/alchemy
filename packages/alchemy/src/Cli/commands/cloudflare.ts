@@ -24,7 +24,7 @@ import {
   bootstrap as bootstrapCloudflare,
   teardownStateStore,
 } from "../../Cloudflare/StateStore/State.ts";
-import * as Clank from "../../Util/Clank.ts";
+import * as CliKit from "../../Cli/CliKit/index.ts";
 import { loadConfigProvider } from "../../Util/ConfigProvider.ts";
 import { fileLogger } from "../../Util/FileLogger.ts";
 
@@ -34,11 +34,13 @@ import {
   instrumentCommand,
   parseSince,
   profile,
+  yes,
 } from "./_shared.ts";
+import { resolveProfileName } from "../ProfileSelection.ts";
 
 /**
  * Build the Cloudflare auth + environment layer stack used by every
- * `alchemy cloudflare ...` subcommand. Mirrors the wiring inside
+ * `alchemy provider cloudflare ...` subcommand. Mirrors the wiring inside
  * `Cloudflare.state(...)` so the command can talk to the user's
  * account out-of-band.
  */
@@ -97,25 +99,30 @@ const bootstrapCommand = Command.make(
     workerName: cloudflareWorkerName,
   },
   instrumentCommand(
-    "cloudflare.bootstrap",
+    "provider.cloudflare.bootstrap",
     (a: {
-      profile: string;
+      profile: string | undefined;
       force: boolean;
       workerName: string | undefined;
     }) => ({
-      "alchemy.profile": a.profile,
+      "alchemy.profile": a.profile ?? "",
       "alchemy.force": a.force,
       "alchemy.worker_name": a.workerName ?? "",
     }),
   )(
     Effect.fn(function* ({ envFile, profile, force, workerName }) {
-      const services = yield* cloudflareLayers(envFile, profile);
+      const profileName = yield* resolveProfileName(envFile, profile);
+      const services = yield* cloudflareLayers(envFile, profileName);
       yield* bootstrapCloudflare({
         workerName,
         force,
-        profile,
+        profile: profileName,
       }).pipe(Effect.provide(services));
     }),
+  ),
+).pipe(
+  Command.withDescription(
+    "Provision Cloudflare account prerequisites for deployments",
   ),
 );
 
@@ -125,25 +132,37 @@ const teardownCommand = Command.make(
     envFile,
     profile,
     workerName: cloudflareWorkerName,
+    yes,
   },
   instrumentCommand(
-    "cloudflare.teardown",
-    (a: { profile: string; workerName: string | undefined }) => ({
-      "alchemy.profile": a.profile,
+    "provider.cloudflare.teardown",
+    (a: { profile: string | undefined; workerName: string | undefined }) => ({
+      "alchemy.profile": a.profile ?? "",
       "alchemy.worker_name": a.workerName ?? "",
     }),
   )(
-    Effect.fn(function* ({ envFile, profile, workerName }) {
-      const services = yield* cloudflareLayers(envFile, profile);
+    Effect.fn(function* ({ envFile, profile, workerName, yes: approved }) {
+      if (
+        !approved &&
+        !(yield* (yield* CliKit.CliKit).confirm({
+          message:
+            "Tear down the Cloudflare state store and its backing resources?",
+          initialValue: false,
+        }))
+      ) {
+        return;
+      }
+      const profileName = yield* resolveProfileName(envFile, profile);
+      const services = yield* cloudflareLayers(envFile, profileName);
       yield* teardownStateStore({
         workerName,
-        profile,
+        profile: profileName,
       }).pipe(Effect.provide(services));
     }),
   ),
 ).pipe(
+  Command.withDescription("Tear down the Cloudflare state store"),
   Command.unlisted,
-  Command.withDescription("Tear down the cloudflare state store"),
 );
 
 /**
@@ -235,10 +254,12 @@ const selectAccountIds = (defaultAccountId: string | undefined) =>
     }
     if (accounts.length === 1) {
       const account = accounts[0]!;
-      yield* Clank.info(`Using account: ${account.name} (${account.id})`);
+      yield* (yield* CliKit.CliKit).info(
+        `Using account: ${account.name} (${account.id})`,
+      );
       return [account.id];
     }
-    return yield* Clank.multiselect<string>({
+    return yield* (yield* CliKit.CliKit).multiSelect<string>({
       message:
         "Select the Cloudflare account(s) to scope the token to " +
         "(space to toggle, enter to confirm)",
@@ -246,7 +267,8 @@ const selectAccountIds = (defaultAccountId: string | undefined) =>
       options: accounts.map((a) => ({
         value: a.id,
         label: a.name,
-        hint: a.id === defaultAccountId ? `${a.id} (current profile)` : a.id,
+        description:
+          a.id === defaultAccountId ? `${a.id} (current profile)` : a.id,
       })),
       required: true,
     });
@@ -287,7 +309,7 @@ const tokenAccountIdFlag = Flag.string("account-id").pipe(
 );
 
 /**
- * `alchemy cloudflare create-token` — mint a Cloudflare API token
+ * `alchemy provider cloudflare create-token` — mint a Cloudflare API token
  * (`POST /user/tokens`).
  *
  * This command is **standalone**: it does not use an Alchemy auth profile.
@@ -307,7 +329,7 @@ const tokenAccountIdFlag = Flag.string("account-id").pipe(
  * from the interactive selection prompt.
  */
 const createTokenCommand = Command.make(
-  "create-token",
+  "token",
   {
     envFile,
     allPermissions: allPermissionsFlag,
@@ -335,7 +357,7 @@ const createTokenCommand = Command.make(
         );
         const apiKey =
           envApiKey ??
-          (yield* Clank.password({
+          (yield* (yield* CliKit.CliKit).password({
             message:
               "Paste your Global API Key (see bottom of https://dash.cloudflare.com/profile/api-tokens)",
             validate: (v) => (v.trim().length === 0 ? "Required" : undefined),
@@ -347,7 +369,7 @@ const createTokenCommand = Command.make(
         );
         const email =
           envEmail ??
-          (yield* Clank.text({
+          (yield* (yield* CliKit.CliKit).text({
             message: "Cloudflare account email",
             validate: (v) => (v.trim().length === 0 ? "Required" : undefined),
           }));
@@ -368,7 +390,7 @@ const createTokenCommand = Command.make(
 
         const tokenName =
           name ??
-          (yield* Clank.text({
+          (yield* (yield* CliKit.CliKit).text({
             message: "Token name",
             placeholder: allPermissions ? "alchemy-superuser" : "alchemy",
             validate: (v) =>
@@ -418,13 +440,13 @@ const createTokenCommand = Command.make(
             .filter((g) => SELECTABLE_SCOPE_LABELS[g.scopes[0]!] !== undefined)
             .sort((a, b) => a.name.localeCompare(b.name));
 
-          const chosenIds = yield* Clank.multiselect<string>({
+          const chosenIds = yield* (yield* CliKit.CliKit).multiSelect<string>({
             message:
               "Select the permission groups to grant (space to toggle, enter to confirm)",
             options: selectable.map((g) => ({
               value: g.id,
               label: g.name,
-              hint: SELECTABLE_SCOPE_LABELS[g.scopes[0]!],
+              description: SELECTABLE_SCOPE_LABELS[g.scopes[0]!],
             })),
             required: true,
           });
@@ -441,16 +463,16 @@ const createTokenCommand = Command.make(
         }
 
         if (allPermissions) {
-          yield* Clank.warn(
+          yield* (yield* CliKit.CliKit).warn(
             "This token will have FULL access to your Cloudflare account. " +
               "Keep it secret — anyone with it can control your account.",
           );
-          const ok = yield* Clank.confirm({
+          const ok = yield* (yield* CliKit.CliKit).confirm({
             message: "Create a superuser token with all permissions?",
             initialValue: false,
           });
           if (!ok) {
-            yield* Console.log("Cancelled.");
+            yield* (yield* CliKit.CliKit).info("Cancelled.");
             return;
           }
         }
@@ -512,7 +534,7 @@ const createTokenCommand = Command.make(
         );
 
         if (granted === 0) {
-          yield* Clank.warn(
+          yield* (yield* CliKit.CliKit).warn(
             "Cloudflare granted 0 permissions. A token can only carry permissions " +
               "the authenticating user already holds, so this usually means the " +
               "Global API Key's user is not a Super Administrator on the selected " +
@@ -521,7 +543,7 @@ const createTokenCommand = Command.make(
           );
         } else {
           // Token is good; preempt the "it looks empty" confusion.
-          yield* Clank.info(
+          yield* (yield* CliKit.CliKit).info(
             "Heads up: the Cloudflare dashboard often renders API-created tokens " +
               'with a blank permission summary (and a greyed-out "View") — this is ' +
               "a known UI bug, not a broken token. The permissions above are applied. " +
@@ -531,9 +553,10 @@ const createTokenCommand = Command.make(
       }).pipe(Effect.provide(configProvider));
     }),
   ),
-);
+).pipe(Command.withDescription("Create a scoped Cloudflare API token"));
 
-const tailFlag = Flag.boolean("tail").pipe(
+const tailFlag = Flag.boolean("follow").pipe(
+  Flag.withAlias("f"),
   Flag.withDescription(
     "Stream logs in real time via the Cloudflare tail websocket instead of fetching past entries.",
   ),
@@ -541,7 +564,9 @@ const tailFlag = Flag.boolean("tail").pipe(
 );
 
 const limitFlag = Flag.integer("limit").pipe(
-  Flag.withDescription("Number of log entries to fetch (ignored with --tail)"),
+  Flag.withDescription(
+    "Number of log entries to fetch (ignored with --follow)",
+  ),
   Flag.withDefault(100),
 );
 
@@ -554,7 +579,7 @@ const sinceFlag = Flag.string("since").pipe(
 );
 
 /**
- * `alchemy cloudflare state logs` — get or tail logs from the
+ * `alchemy provider cloudflare state logs` — get or follow logs from the
  * `alchemy-state-store` Worker on the user's account. Lets us debug
  * the state-store worker without standing up a stack file.
  */
@@ -571,19 +596,20 @@ const stateLogsCommand = Command.make(
   instrumentCommand(
     "cloudflare.state.logs",
     (a: {
-      profile: string;
+      profile: string | undefined;
       workerName: string | undefined;
       tail: boolean;
       limit: number;
     }) => ({
-      "alchemy.profile": a.profile,
+      "alchemy.profile": a.profile ?? "",
       "alchemy.worker_name": a.workerName ?? STATE_STORE_SCRIPT_NAME,
       "alchemy.tail": a.tail,
       "alchemy.limit": a.limit,
     }),
   )(
     Effect.fn(function* ({ envFile, profile, workerName, tail, limit, since }) {
-      const services = yield* cloudflareLayers(envFile, profile);
+      const profileName = yield* resolveProfileName(envFile, profile);
+      const services = yield* cloudflareLayers(envFile, profileName);
       const scriptName = workerName ?? STATE_STORE_SCRIPT_NAME;
 
       yield* Effect.gen(function* () {
@@ -595,7 +621,7 @@ const stateLogsCommand = Command.make(
           `${formatLocalTimestamp(line.timestamp)} [${scriptName}] ${line.message}`;
 
         if (tail) {
-          yield* Console.log(`Tailing ${scriptName}...`);
+          yield* (yield* CliKit.CliKit).info(`Tailing ${scriptName}...`);
           yield* telemetry
             .tailScript({ accountId, scriptName })
             .pipe(Stream.runForEach((line) => Console.log(formatLine(line))));
@@ -629,13 +655,17 @@ const stateLogsCommand = Command.make(
       }).pipe(Effect.provide(services));
     }),
   ),
+).pipe(
+  Command.withDescription("Stream or fetch logs from the state-store worker"),
 );
 
 const stateCommand = Command.make("state", {}).pipe(
+  Command.withDescription("Manage the Cloudflare-hosted state store"),
   Command.withSubcommands([stateLogsCommand]),
 );
 
 export const cloudflareCommand = Command.make("cloudflare", {}).pipe(
+  Command.withDescription("Manage Cloudflare provider prerequisites"),
   Command.withSubcommands([
     bootstrapCommand,
     teardownCommand,

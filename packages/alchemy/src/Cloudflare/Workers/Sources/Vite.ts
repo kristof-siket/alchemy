@@ -13,6 +13,7 @@ import {
   viteBuildOutputPlugin,
   type ViteBuildOutput,
 } from "../../../Bundle/Vite.ts";
+import { makeResourceOutput } from "../../../Cli/Output.ts";
 import { hashDirectory, type MemoOptions } from "../../../Command/Memo.ts";
 import { initialCwd } from "../../../Util/Node.ts";
 import { sha256Object } from "../../../Util/sha256.ts";
@@ -141,9 +142,11 @@ export const viteBuild = (
   rootDir: string = initialCwd,
   env: Record<string, unknown>,
   pluginOptions: CloudflareVitePluginOptions,
+  workerId: string,
 ) =>
   ConsoleService.consoleWith((console) =>
     Effect.gen(function* () {
+      const output = makeResourceOutput(workerId, console);
       const result = yield* runViteBuildChild(
         {
           // Anchor to the initial cwd so the resolution itself can't race a
@@ -159,8 +162,7 @@ export const viteBuild = (
           compatibilityFlags: pluginOptions.compatibilityFlags,
           viteEnvironments: pluginOptions.viteEnvironments,
         },
-        (channel, line) =>
-          channel === "stderr" ? console.error(line) : console.log(line),
+        output.writeLine,
       );
       return {
         clientDirectory: result.clientDirectory,
@@ -359,12 +361,17 @@ export const makeViteSource = (vite: ViteOptions): SourceProvider => ({
     const path = yield* Path.Path;
     const env = yield* resolveViteEnv(ctx.env ?? {});
     const { clientDirectory, serverBundle, externalWorkspaces } =
-      yield* viteBuild(vite.rootDir, env, {
-        main: vite.main,
-        compatibilityDate: ctx.compatibility.date,
-        compatibilityFlags: ctx.compatibility.flags,
-        viteEnvironments: vite.viteEnvironments,
-      });
+      yield* viteBuild(
+        vite.rootDir,
+        env,
+        {
+          main: vite.main,
+          compatibilityDate: ctx.compatibility.date,
+          compatibilityFlags: ctx.compatibility.flags,
+          viteEnvironments: vite.viteEnvironments,
+        },
+        ctx.id,
+      );
     const [assets, bundle, input] = yield* Effect.all(
       [
         clientDirectory

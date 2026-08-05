@@ -9,6 +9,7 @@ import * as HttpClient from "effect/unstable/http/HttpClient";
 
 import { AlchemyContext } from "alchemy/AlchemyContext";
 import packageJson from "../../package.json" with { type: "json" };
+import { ANSI_RESET, ansiFg, theme } from "./CliKit/index.ts";
 
 const NPM_DIST_TAGS_URL =
   "https://registry.npmjs.org/-/package/alchemy/dist-tags";
@@ -136,7 +137,11 @@ export const checkLatestVersion = Effect.gen(function* () {
   const message =
     `alchemy ${latest} is available (you're on ${current}). ` +
     `Run \`${installCmd}\` to upgrade.`;
-  yield* Console.warn(useColor ? `\x1b[33m${message}\x1b[0m` : message);
+  yield* Console.warn(
+    useColor
+      ? `${ansiFg(theme.color.warning)}${theme.glyph.warning} ${message}${ANSI_RESET}`
+      : message,
+  );
 }).pipe(Effect.catch(() => Effect.void));
 
 // Exported for tests.
