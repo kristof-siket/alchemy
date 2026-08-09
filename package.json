@@ -243,7 +243,8 @@
   },
   "resolutions": {
     "effect": "4.0.0-beta.105",
-    "@effect/platform-browser": "4.0.0-beta.105"
+    "@effect/platform-browser": "4.0.0-beta.105",
+    "yoga-layout": "npm:@blankparticle/yoga-layout@0.0.1-rc.1"
   },
   "patchedDependencies": {
     "@astrojs/starlight@0.41.7": "patches/@astrojs%2Fstarlight@0.41.7.patch",

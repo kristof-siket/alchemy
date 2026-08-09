@@ -18,8 +18,11 @@ import {
   filterChoices,
   CycleList,
   ExternalWait,
+  jumpSkippingDisabled,
   Menu,
+  moveSkippingDisabled,
   PromptFrame,
+  sanitizeTextInsert,
   TextField,
   useListNavigation,
   useSelectedChoices,
@@ -147,22 +150,23 @@ const SelectPrompt = <Value,>({
       : Math.max(0, firstEnabled),
   );
   useCancel(cancel);
-  const moveEnabled = (delta: number) => {
-    if (options.options.length === 0) return;
-    for (let offset = 1; offset <= options.options.length; offset++) {
-      const next =
-        (cursor + delta * offset + options.options.length) %
-        options.options.length;
-      const disabled = options.options[next]?.disabled;
-      if (disabled === undefined || disabled === false) {
-        setCursor(next);
-        return;
-      }
-    }
-  };
-  useTerminalInput((_input, key) => {
-    if (key.up) moveEnabled(-1);
-    else if (key.down) moveEnabled(1);
+  const disabled = options.options.map(
+    (choice) => choice.disabled !== undefined && choice.disabled !== false,
+  );
+  const page = Math.max(1, options.visibleCount ?? 12);
+  useTerminalInput((input, key) => {
+    const plain = !key.ctrl && !key.meta;
+    if (key.up || (plain && input === "k"))
+      setCursor(moveSkippingDisabled(disabled, cursor, -1));
+    else if (key.down || (plain && input === "j"))
+      setCursor(moveSkippingDisabled(disabled, cursor, 1));
+    else if (key.home) setCursor(jumpSkippingDisabled(disabled, cursor, 0));
+    else if (key.end)
+      setCursor(jumpSkippingDisabled(disabled, cursor, disabled.length - 1));
+    else if (key.pageUp)
+      setCursor(jumpSkippingDisabled(disabled, cursor, cursor - page));
+    else if (key.pageDown)
+      setCursor(jumpSkippingDisabled(disabled, cursor, cursor + page));
     else if (key.enter) {
       const choice = options.options[cursor];
       if (choice !== undefined && !choice.disabled) {
@@ -243,17 +247,50 @@ const MultiSelectPrompt = <Value,>({
         : filterChoices(options.options, query),
     [options.options, options.searchable, query],
   );
-  const { cursor, move, setCursor } = useListNavigation(filtered.length);
+  const { cursor, setCursor } = useListNavigation(filtered.length);
   const [selected, setSelected] = useSelectedChoices(
     options.options,
     options.initialValues ?? [],
   );
   const [error, setError] = useState<string>();
-  useCancel(cancel);
+  const disabled = filtered.map(({ choice }) => {
+    return choice.disabled !== undefined && choice.disabled !== false;
+  });
+  const page = Math.max(1, options.visibleCount ?? 12);
   useTerminalInput((input, key) => {
-    if (key.up) move(-1);
-    else if (key.down) move(1);
-    else if (input === " ") {
+    if (key.up) setCursor(moveSkippingDisabled(disabled, cursor, -1));
+    else if (key.down) setCursor(moveSkippingDisabled(disabled, cursor, 1));
+    else if (key.home) setCursor(jumpSkippingDisabled(disabled, cursor, 0));
+    else if (key.end)
+      setCursor(jumpSkippingDisabled(disabled, cursor, disabled.length - 1));
+    else if (key.pageUp)
+      setCursor(jumpSkippingDisabled(disabled, cursor, cursor - page));
+    else if (key.pageDown)
+      setCursor(jumpSkippingDisabled(disabled, cursor, cursor + page));
+    else if (key.escape) {
+      // An active filter absorbs the first Escape; the second cancels.
+      if (query !== "") {
+        setQuery("");
+        setCursor(0);
+      } else cancel();
+    } else if (key.ctrl && input === "a") {
+      const enabledVisible = filtered.flatMap(({ choice, index }) =>
+        choice.disabled !== undefined && choice.disabled !== false
+          ? []
+          : [index],
+      );
+      if (enabledVisible.length === 0) return;
+      setSelected((current) => {
+        const next = new Set(current);
+        const allSelected = enabledVisible.every((index) => next.has(index));
+        for (const index of enabledVisible) {
+          if (allSelected) next.delete(index);
+          else next.add(index);
+        }
+        return next;
+      });
+      setError(undefined);
+    } else if (input === " " && !key.ctrl && !key.meta) {
       const original = filtered[cursor]?.index;
       if (original === undefined || options.options[original]?.disabled) return;
       setSelected((current) => {
@@ -281,17 +318,20 @@ const MultiSelectPrompt = <Value,>({
           answer={labels.length === 0 ? "none" : labels.join(", ")}
         />,
       );
-    } else if (options.searchable !== false && key.backspace) {
+      // Most terminals send DEL (0x7f) for Backspace, surfaced by ink as
+      // `key.delete`; `key.backspace` is Ctrl+H. Both erase from the filter.
+    } else if (options.searchable !== false && (key.backspace || key.delete)) {
       setQuery((current) => current.slice(0, -1));
       setCursor(0);
     } else if (
       options.searchable !== false &&
-      input.length > 0 &&
       !key.ctrl &&
       !key.meta &&
       !key.tab
     ) {
-      setQuery((current) => current + input);
+      const typed = sanitizeTextInsert(input);
+      if (typed.length === 0) return;
+      setQuery((current) => current + typed);
       setCursor(0);
     }
   });
@@ -308,6 +348,7 @@ const MultiSelectPrompt = <Value,>({
       keys={[
         [keys.upDown, "navigate"],
         [keys.space, "toggle"],
+        ["ctrl+a", "toggle all"],
         ...(options.searchable === false
           ? []
           : ([["type", "filter"]] as const)),
@@ -355,10 +396,19 @@ const CycleSelectPrompt = <State,>({
     options.options.map((choice) => choice.states.length),
   );
   useCancel(cancel);
+  const last = Math.max(0, options.options.length - 1);
+  const page = Math.max(1, options.visibleCount ?? 12);
   useTerminalInput((input, key) => {
-    if (key.up) navigation.move(-1);
-    else if (key.down) navigation.move(1);
-    else if (input === " " || key.right) navigation.cycle(1);
+    const plain = !key.ctrl && !key.meta;
+    if (key.up || (plain && input === "k")) navigation.move(-1);
+    else if (key.down || (plain && input === "j")) navigation.move(1);
+    else if (key.home) navigation.setCursor(0);
+    else if (key.end) navigation.setCursor(last);
+    else if (key.pageUp)
+      navigation.setCursor(Math.max(0, navigation.cursor - page));
+    else if (key.pageDown)
+      navigation.setCursor(Math.min(last, navigation.cursor + page));
+    else if ((plain && input === " ") || key.right) navigation.cycle(1);
     else if (key.left) navigation.cycle(-1);
     else if (key.enter) {
       const values = options.options.flatMap((choice, index) => {
@@ -440,8 +490,10 @@ const ConfirmPrompt = ({
       />,
     );
   useTerminalInput((input, key) => {
-    if (key.left || key.right || key.tab) setValue((current) => !current);
+    if (key.left || key.right || key.tab || key.up || key.down)
+      setValue((current) => !current);
     else if (key.enter) complete(value);
+    else if (key.ctrl || key.meta) return;
     else if (input.toLowerCase() === "y") complete(true);
     else if (input.toLowerCase() === "n") complete(false);
   });

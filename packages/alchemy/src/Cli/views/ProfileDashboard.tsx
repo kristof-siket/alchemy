@@ -310,6 +310,8 @@ const Dashboard = ({
     if (mode !== "normal") return;
     if (input === "q" || key.escape || (key.ctrl && input === "c")) {
       store.dispatch({ kind: "exit" });
+    } else if (key.ctrl || key.meta) {
+      return;
     } else if (input === "n") {
       setMode("create");
     } else if (entry === undefined) {

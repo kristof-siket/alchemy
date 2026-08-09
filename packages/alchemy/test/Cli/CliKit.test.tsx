@@ -470,6 +470,106 @@ it.effect("treats the terminal DEL byte as text-field backspace", () =>
   }),
 );
 
+/** Let a written stdin chunk flow through Ink's input pipeline. */
+const settleInput = Effect.promise(
+  () => new Promise<void>((resolve) => setTimeout(resolve, 10)),
+);
+
+it.effect("strips control characters from pasted text-field input", () =>
+  Effect.gen(function* () {
+    const stdin = new InputStream();
+    const { service } = yield* makeLive({ stdin });
+
+    const fiber = yield* service
+      .run(
+        Screen.make("paste", ({ submit }) => <TextField onSubmit={submit} />),
+      )
+      .pipe(Effect.forkChild);
+    yield* Effect.promise(() => stdin.ready);
+    // A paste arrives as one chunk; embedded newlines/tabs must not survive.
+    yield* Effect.sync(() => stdin.write("to\tken\r\n123"));
+    yield* settleInput;
+    yield* Effect.sync(() => stdin.write("\r"));
+    const result = yield* Fiber.join(fiber);
+
+    expect(result).toBe("token123");
+  }),
+);
+
+it.effect("deletes a whole emoji grapheme on backspace", () =>
+  Effect.gen(function* () {
+    const stdin = new InputStream();
+    const { service } = yield* makeLive({ stdin });
+
+    const fiber = yield* service
+      .run(
+        Screen.make("grapheme", ({ submit }) => (
+          <TextField initialValue="a👍" onChange={submit} onSubmit={submit} />
+        )),
+      )
+      .pipe(Effect.forkChild);
+    yield* Effect.promise(() => stdin.ready);
+    yield* Effect.sync(() => stdin.write("\x7f"));
+    const result = yield* Fiber.join(fiber);
+
+    expect(result).toBe("a");
+  }),
+);
+
+it.effect("erases the multi-select filter with the terminal DEL byte", () =>
+  Effect.gen(function* () {
+    const stdin = new InputStream();
+    const { service } = yield* makeLive({ stdin });
+
+    const fiber = yield* service
+      .multiSelect({
+        message: "pick",
+        options: [
+          { value: "alpha", label: "alpha" },
+          { value: "beta", label: "beta" },
+        ],
+      })
+      .pipe(Effect.forkChild);
+    yield* Effect.promise(() => stdin.ready);
+    // Filter to nothing, erase the filter with DEL, then toggle + confirm.
+    yield* Effect.sync(() => stdin.write("z"));
+    yield* settleInput;
+    yield* Effect.sync(() => stdin.write("\x7f"));
+    yield* settleInput;
+    yield* Effect.sync(() => stdin.write(" "));
+    yield* settleInput;
+    yield* Effect.sync(() => stdin.write("\r"));
+    const result = yield* Fiber.join(fiber);
+
+    expect(result).toEqual(["alpha"]);
+  }),
+);
+
+it.effect("toggles every visible multi-select choice on ctrl+a", () =>
+  Effect.gen(function* () {
+    const stdin = new InputStream();
+    const { service } = yield* makeLive({ stdin });
+
+    const fiber = yield* service
+      .multiSelect({
+        message: "pick",
+        options: [
+          { value: "alpha", label: "alpha" },
+          { value: "beta", label: "beta" },
+          { value: "gamma", label: "gamma", disabled: true },
+        ],
+      })
+      .pipe(Effect.forkChild);
+    yield* Effect.promise(() => stdin.ready);
+    yield* Effect.sync(() => stdin.write("\x01"));
+    yield* settleInput;
+    yield* Effect.sync(() => stdin.write("\r"));
+    const result = yield* Fiber.join(fiber);
+
+    expect(result).toEqual(["alpha", "beta"]);
+  }),
+);
+
 it.effect("cleans up a cancelled standalone prompt", () =>
   Effect.gen(function* () {
     const { service, stdout } = yield* makeLive();

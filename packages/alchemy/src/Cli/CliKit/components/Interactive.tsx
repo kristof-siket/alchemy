@@ -74,6 +74,51 @@ export const useListNavigation = (length: number, initialIndex = 0) => {
   return { cursor: clamped, move, setCursor } as const;
 };
 
+/** Step `delta` rows from `cursor`, wrapping and skipping disabled rows. */
+export const moveSkippingDisabled = (
+  disabled: ReadonlyArray<boolean>,
+  cursor: number,
+  delta: number,
+): number => {
+  const length = disabled.length;
+  if (length === 0) return 0;
+  for (let offset = 1; offset <= length; offset++) {
+    const next = (((cursor + delta * offset) % length) + length) % length;
+    if (!disabled[next]) return next;
+  }
+  return cursor;
+};
+
+/**
+ * Jump to `target` (clamped, no wrap), settling on the nearest enabled row in
+ * the jump direction and falling back to the other direction. Used for
+ * Home/End and PageUp/PageDown in list prompts.
+ */
+export const jumpSkippingDisabled = (
+  disabled: ReadonlyArray<boolean>,
+  cursor: number,
+  target: number,
+): number => {
+  const clamped = Math.max(0, Math.min(disabled.length - 1, target));
+  if (!disabled[clamped]) return clamped;
+  const direction = clamped >= cursor ? 1 : -1;
+  for (
+    let next = clamped + direction;
+    next >= 0 && next < disabled.length;
+    next += direction
+  ) {
+    if (!disabled[next]) return next;
+  }
+  for (
+    let next = clamped - direction;
+    next >= 0 && next < disabled.length;
+    next -= direction
+  ) {
+    if (!disabled[next]) return next;
+  }
+  return cursor;
+};
+
 export interface MenuProps<Value> {
   readonly choices: ReadonlyArray<Choice<Value>>;
   readonly cursor: number;
@@ -172,7 +217,50 @@ export interface TextFieldProps {
   readonly active?: boolean;
 }
 
-/** Single-line editor with insertion, deletion, home/end and cursor movement. */
+const graphemeSegmenter = new Intl.Segmenter();
+
+/**
+ * Split into user-perceived characters so cursor movement and deletion never
+ * land inside a surrogate pair or emoji cluster.
+ */
+const toGraphemes = (value: string): ReadonlyArray<string> =>
+  Array.from(graphemeSegmenter.segment(value), (segment) => segment.segment);
+
+/**
+ * Ink has no bracketed-paste support, so a paste arrives as one multi-char
+ * input chunk that may carry newlines, tabs or stray escape bytes. A
+ * single-line field drops control characters instead of splicing them in.
+ */
+export const sanitizeTextInsert = (input: string): string =>
+  // eslint-disable-next-line no-control-regex
+  input.replace(/[\u0000-\u001f\u007f]/g, "");
+
+/** Readline-style whitespace word boundary to the left of `cursor`. */
+const wordBoundaryLeft = (
+  chars: ReadonlyArray<string>,
+  cursor: number,
+): number => {
+  let index = cursor;
+  while (index > 0 && chars[index - 1] === " ") index--;
+  while (index > 0 && chars[index - 1] !== " ") index--;
+  return index;
+};
+
+/** Readline-style whitespace word boundary to the right of `cursor`. */
+const wordBoundaryRight = (
+  chars: ReadonlyArray<string>,
+  cursor: number,
+): number => {
+  let index = cursor;
+  while (index < chars.length && chars[index] === " ") index++;
+  while (index < chars.length && chars[index] !== " ") index++;
+  return index;
+};
+
+/**
+ * Single-line editor with insertion, deletion, home/end, word-wise movement
+ * and the common readline kill bindings (Ctrl+U/K/W, Alt+Backspace).
+ */
 export const TextField = ({
   placeholder,
   initialValue = "",
@@ -186,51 +274,67 @@ export const TextField = ({
   const focused = useFocus();
   const [internalValue, setInternalValue] = useState(initialValue);
   const value = controlledValue ?? internalValue;
-  const [cursor, setCursor] = useState(initialValue.length);
+  const chars = toGraphemes(value);
+  const [cursor, setCursor] = useState(() => toGraphemes(initialValue).length);
   useEffect(() => {
-    setCursor((current) => Math.min(current, value.length));
-  }, [value.length]);
-  const update = (next: string, nextCursor: number) => {
+    setCursor((current) => Math.min(current, toGraphemes(value).length));
+  }, [value]);
+  const update = (nextChars: ReadonlyArray<string>, nextCursor: number) => {
+    const next = nextChars.join("");
     if (controlledValue === undefined) setInternalValue(next);
-    setCursor(Math.max(0, Math.min(next.length, nextCursor)));
+    setCursor(Math.max(0, Math.min(nextChars.length, nextCursor)));
     onChange?.(next);
   };
   useTerminalInput(
     (input, key) => {
       if (key.enter) onSubmit(value);
       else if (key.escape) onCancel?.();
-      else if (key.left) setCursor((current) => Math.max(0, current - 1));
-      else if (key.right)
-        setCursor((current) => Math.min(value.length, current + 1));
-      // Most terminals send DEL (0x7f) for Backspace. Ink exposes that as
-      // `key.delete`, while Ctrl+H is exposed as `key.backspace`.
-      else if ((key.backspace || key.delete) && cursor > 0)
-        update(value.slice(0, cursor - 1) + value.slice(cursor), cursor - 1);
-      else if (key.ctrl && input === "d" && cursor < value.length)
-        update(value.slice(0, cursor) + value.slice(cursor + 1), cursor);
-      else if (key.home) setCursor(0);
-      else if (key.end) setCursor(value.length);
-      else if (key.ctrl && input === "a") setCursor(0);
-      else if (key.ctrl && input === "e") setCursor(value.length);
-      else if (
-        input.length > 0 &&
-        !key.ctrl &&
-        !key.meta &&
-        !key.escape &&
-        !key.tab &&
-        !key.up &&
-        !key.down
-      ) {
-        update(
-          value.slice(0, cursor) + input + value.slice(cursor),
-          cursor + input.length,
+      else if (key.left)
+        setCursor(
+          key.ctrl || key.meta
+            ? wordBoundaryLeft(chars, cursor)
+            : Math.max(0, cursor - 1),
         );
+      else if (key.right)
+        setCursor(
+          key.ctrl || key.meta
+            ? wordBoundaryRight(chars, cursor)
+            : Math.min(chars.length, cursor + 1),
+        );
+      // Most terminals send DEL (0x7f) for Backspace. Ink exposes that as
+      // `key.delete`, while Ctrl+H is exposed as `key.backspace` — both mean
+      // "delete left" here; Alt+Backspace deletes the word to the left.
+      else if ((key.backspace || key.delete) && cursor > 0) {
+        const target = key.meta ? wordBoundaryLeft(chars, cursor) : cursor - 1;
+        update([...chars.slice(0, target), ...chars.slice(cursor)], target);
+      } else if (key.ctrl && input === "d" && cursor < chars.length)
+        update([...chars.slice(0, cursor), ...chars.slice(cursor + 1)], cursor);
+      else if (key.ctrl && input === "w" && cursor > 0) {
+        const target = wordBoundaryLeft(chars, cursor);
+        update([...chars.slice(0, target), ...chars.slice(cursor)], target);
+      } else if (key.ctrl && input === "u") update(chars.slice(cursor), 0);
+      else if (key.ctrl && input === "k")
+        update(chars.slice(0, cursor), cursor);
+      else if (key.home || (key.ctrl && input === "a")) setCursor(0);
+      else if (key.end || (key.ctrl && input === "e")) setCursor(chars.length);
+      else if (key.meta && input === "b")
+        setCursor(wordBoundaryLeft(chars, cursor));
+      else if (key.meta && input === "f")
+        setCursor(wordBoundaryRight(chars, cursor));
+      else if (!key.ctrl && !key.meta && !key.tab) {
+        const inserted = toGraphemes(sanitizeTextInsert(input));
+        if (inserted.length > 0) {
+          update(
+            [...chars.slice(0, cursor), ...inserted, ...chars.slice(cursor)],
+            cursor + inserted.length,
+          );
+        }
       }
     },
     { active: active ?? focused },
   );
-  const shown = mask === undefined ? value : mask.repeat(value.length);
-  if (shown.length === 0) {
+  const shownChars = mask === undefined ? chars : chars.map(() => mask);
+  if (shownChars.length === 0) {
     return (
       <Text>
         <Text inverse> </Text>
@@ -242,9 +346,9 @@ export const TextField = ({
   }
   return (
     <Text>
-      {shown.slice(0, cursor)}
-      <Text inverse>{shown[cursor] ?? " "}</Text>
-      {shown.slice(cursor + 1)}
+      {shownChars.slice(0, cursor).join("")}
+      <Text inverse>{shownChars[cursor] ?? " "}</Text>
+      {shownChars.slice(cursor + 1).join("")}
     </Text>
   );
 };
@@ -394,9 +498,10 @@ export const InlineConfirm = ({
   useTerminalInput(
     (input, key) => {
       if (key.escape) onCancel?.();
-      else if (key.left || key.right || key.tab)
+      else if (key.left || key.right || key.tab || key.up || key.down)
         setValue((current) => !current);
       else if (key.enter) onSubmit(value);
+      else if (key.ctrl || key.meta) return;
       else if (input.toLowerCase() === "y") onSubmit(true);
       else if (input.toLowerCase() === "n") onSubmit(false);
     },
@@ -469,6 +574,8 @@ export const ExternalWait = ({
     }
     if (key.enter) setManual(true);
     else if (key.escape) onCancel();
+    // Ctrl+C must fall through to the runner's cancel guard, not copy the URL.
+    else if (key.ctrl || key.meta) return;
     else if (input === "u") setShowFull((current) => !current);
     else if (input === "c" && url !== undefined) {
       copyToClipboard(url, stdout ?? process.stdout);

@@ -19,6 +19,7 @@ minimumReleaseAgeExcludes = [
   "@distilled.cloud/axiom",
   "@alchemy.run/cloudflare-runtime",
   "@alchemy.run/cloudflare-frameworks",
+  "@blankparticle/yoga-layout",
   "@distilled.cloud/cloudflare",
   "@distilled.cloud/core",
   "@distilled.cloud/neon",

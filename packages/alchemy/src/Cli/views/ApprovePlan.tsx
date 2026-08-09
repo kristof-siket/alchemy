@@ -39,9 +39,11 @@ export function ApprovePlan(props: ApprovePlanProps): JSX.Element {
     );
 
   useTerminalInput((input, key) => {
-    if (key.left || key.right || key.tab) setApproved((current) => !current);
+    if (key.left || key.right || key.tab || key.up || key.down)
+      setApproved((current) => !current);
     else if (key.enter) complete(approved);
     else if (key.escape) controller.cancel();
+    else if (key.ctrl || key.meta) return;
     else if (input.toLowerCase() === "y") complete(true);
     else if (input.toLowerCase() === "n") complete(false);
   });
