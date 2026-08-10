@@ -29,6 +29,10 @@ export const layer = (options: CliKitOptions = {}) =>
     Effect.acquireRelease(
       Effect.promise(async () => {
         const capabilities = resolveCapabilities(options);
+        if (!capabilities.input) {
+          const { makeRuntime } = await import("./PlainRuntime.ts");
+          return makeRuntime(options, capabilities);
+        }
         const { makeRuntime } = await import("./InkRuntime.tsx");
         return makeRuntime(options, capabilities);
       }),

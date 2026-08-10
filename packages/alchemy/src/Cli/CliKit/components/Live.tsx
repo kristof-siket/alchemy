@@ -237,13 +237,14 @@ const installedConsole = new Map<
 const installConsoleRouter = () => {
   if (installedConsole.size > 0) return;
   for (const method of CONSOLE_METHODS) {
-    originalConsole.set(method, console[method]);
+    const original = console[method];
+    originalConsole.set(method, original);
     const replacement = (...args: ReadonlyArray<unknown>) => {
       const interceptor = consoleInterceptors.at(-1);
       if (interceptor !== undefined) {
         interceptor.handler({ method, text: format(...args) });
       } else {
-        originalConsole.get(method)?.(...args);
+        original(...args);
       }
     };
     installedConsole.set(method, replacement);

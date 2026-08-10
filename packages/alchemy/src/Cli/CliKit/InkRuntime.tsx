@@ -73,7 +73,17 @@ const normalizeView = (view: View): View => {
         typeof item === "bigint",
     )
   ) {
-    return <Text>{view.filter(Boolean).map(String).join("")}</Text>;
+    return (
+      <Text>
+        {view
+          .filter(
+            (item) =>
+              item !== null && item !== undefined && typeof item !== "boolean",
+          )
+          .map(String)
+          .join("")}
+      </Text>
+    );
   }
   return view;
 };
@@ -607,7 +617,8 @@ export const makeRuntime = (
       const key = store.alloc();
       let current = initial;
       let closed = false;
-      const dynamic = appActive || stdout.isTTY === true;
+      const dynamic =
+        capabilities.input && (appActive || stdout.isTTY === true);
       if (dynamic) {
         store.setLive(
           key,
@@ -676,6 +687,16 @@ export const makeRuntime = (
     options: LiveViewOptions = {},
   ): Effect.Effect<LiveViewHandle> =>
     Effect.gen(function* () {
+      if (!capabilities.input) {
+        let closed = false;
+        yield* print(initial);
+        return {
+          update: (view) => (closed ? Effect.void : print(view)),
+          close: Effect.sync(() => {
+            closed = true;
+          }),
+        };
+      }
       const depth = yield* SectionDepth;
       const key = store.alloc();
       let closed = false;

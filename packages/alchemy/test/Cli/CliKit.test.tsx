@@ -151,6 +151,15 @@ it.effect("renders the built-in layout components without writing", () =>
   }),
 );
 
+it.effect("preserves zero in primitive-array views", () =>
+  Effect.gen(function* () {
+    const { service } = makeStatic();
+    const rendered = yield* service.render(["count: ", 0, false, null]);
+
+    expect(rendered).toBe("count: 0");
+  }),
+);
+
 it.effect("prints tables and nested sections through one service", () =>
   Effect.gen(function* () {
     const { service, stdout } = makeStatic();
@@ -344,6 +353,24 @@ it("restores nested console interceptors in any disposal order", () => {
   expect(first).toEqual([]);
   expect(second).toEqual(["second owns this", "second still owns this"]);
   expect(console.log).toBe(original);
+});
+
+it("keeps a foreign console wrapper functional after interception", () => {
+  const platformConsole = console.log;
+  const forwarded: string[] = [];
+  console.log = (...args) => forwarded.push(args.join(" "));
+  const restore = interceptConsole(() => undefined);
+  const routedConsole = console.log;
+  console.log = (...args) => routedConsole(...args);
+  try {
+    restore();
+    console.log("still visible");
+  } finally {
+    restore();
+    console.log = platformConsole;
+  }
+
+  expect(forwarded).toEqual(["still visible"]);
 });
 
 it.effect("task collapses success and failure into status output", () =>
@@ -656,6 +683,29 @@ it.effect("provides CliKit once as a scoped injectable service", () => {
     expect(capabilities.input).toBe(false);
     expect(capabilities.colors).toBe(false);
     expect(stdout.output).toContain("Injected");
+  }).pipe(
+    Effect.provide(
+      cliKitLayer({
+        input: false,
+        stdout: stdout as unknown as NodeJS.WriteStream,
+        captureConsole: false,
+      }),
+    ),
+  );
+});
+
+it.effect("uses append-only progress when input is disabled on a TTY", () => {
+  const stdout = new CaptureStream(true);
+  return Effect.gen(function* () {
+    const cli = yield* CliKit;
+    const progress = yield* cli.progress({ label: "Deploying" });
+    yield* progress.update({ label: "Uploading" });
+    yield* progress.succeed("Deployed");
+
+    expect(cli.capabilities.input).toBe(false);
+    expect(stdout.output).toContain("Deploying\n");
+    expect(stdout.output).toContain("success: Deployed\n");
+    expect(stdout.output).not.toContain("\u001B[");
   }).pipe(
     Effect.provide(
       cliKitLayer({
