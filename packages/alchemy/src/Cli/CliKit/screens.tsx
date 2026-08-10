@@ -1,5 +1,5 @@
 /** @jsxImportSource react */
-import { type ReactNode, useMemo, useState } from "react";
+import { type ReactNode, useEffect, useMemo, useState } from "react";
 import type {
   ConfirmOptions,
   CycleSelectOptions,
@@ -27,6 +27,7 @@ import {
   useListNavigation,
   useSelectedChoices,
   useTerminalInput,
+  useTerminalSize,
   useCycleNavigation,
 } from "./components/Interactive.tsx";
 import { Box } from "./components/Layout.tsx";
@@ -139,26 +140,54 @@ const SelectPrompt = <Value,>({
   readonly escapeLabel?: string;
 }) => {
   const keys = useKeyGlyphs();
-  const initialIndex = options.options.findIndex(
+  const { rows } = useTerminalSize();
+  const visibleCount =
+    options.visibleCount ?? Math.max(3, Math.min(16, rows - 8));
+  const searchable = options.searchable === true;
+  const [query, setQuery] = useState("");
+  const filtered = useMemo(
+    () =>
+      searchable
+        ? filterChoices(options.options, query)
+        : options.options.map((choice, index) => ({ choice, index })),
+    [options.options, query, searchable],
+  );
+  const initialOriginalIndex = options.options.findIndex(
     (choice) => choice.value === options.initialValue,
   );
-  const firstEnabled = options.options.findIndex((choice) => !choice.disabled);
+  const initialIndex = filtered.findIndex(
+    ({ index }) => index === initialOriginalIndex,
+  );
+  const firstEnabled = filtered.findIndex(({ choice }) => !choice.disabled);
   const { cursor, setCursor } = useListNavigation(
-    options.options.length,
-    initialIndex !== -1 && !options.options[initialIndex]?.disabled
+    filtered.length,
+    initialIndex !== -1 && !filtered[initialIndex]?.choice.disabled
       ? initialIndex
       : Math.max(0, firstEnabled),
   );
-  useCancel(cancel);
-  const disabled = options.options.map(
-    (choice) => choice.disabled !== undefined && choice.disabled !== false,
+  const disabled = useMemo(
+    () =>
+      filtered.map(
+        ({ choice }) =>
+          choice.disabled !== undefined && choice.disabled !== false,
+      ),
+    [filtered],
   );
-  const page = Math.max(1, options.visibleCount ?? 12);
+  useEffect(() => {
+    setCursor((current) => {
+      if (filtered.length === 0) return 0;
+      const clamped = Math.min(current, filtered.length - 1);
+      if (!disabled[clamped]) return clamped;
+      const enabled = disabled.findIndex((value) => !value);
+      return enabled === -1 ? clamped : enabled;
+    });
+  }, [disabled, filtered.length, setCursor]);
+  const page = Math.max(1, visibleCount);
   useTerminalInput((input, key) => {
     const plain = !key.ctrl && !key.meta;
-    if (key.up || (plain && input === "k"))
+    if (key.up || (!searchable && plain && input === "k"))
       setCursor(moveSkippingDisabled(disabled, cursor, -1));
-    else if (key.down || (plain && input === "j"))
+    else if (key.down || (!searchable && plain && input === "j"))
       setCursor(moveSkippingDisabled(disabled, cursor, 1));
     else if (key.home) setCursor(jumpSkippingDisabled(disabled, cursor, 0));
     else if (key.end)
@@ -167,8 +196,16 @@ const SelectPrompt = <Value,>({
       setCursor(jumpSkippingDisabled(disabled, cursor, cursor - page));
     else if (key.pageDown)
       setCursor(jumpSkippingDisabled(disabled, cursor, cursor + page));
-    else if (key.enter) {
-      const choice = options.options[cursor];
+    else if (key.escape) {
+      if (query !== "") {
+        setQuery("");
+        setCursor(0);
+      } else cancel();
+    } else if (searchable && (key.backspace || key.delete)) {
+      setQuery((current) => current.slice(0, -1));
+      setCursor(0);
+    } else if (key.enter) {
+      const choice = filtered[cursor]?.choice;
       if (choice !== undefined && !choice.disabled) {
         submit(
           choice.value,
@@ -176,6 +213,12 @@ const SelectPrompt = <Value,>({
             <AnsweredPrompt message={options.message} answer={choice.label} />
           ) : undefined,
         );
+      }
+    } else if (searchable && plain && !key.tab) {
+      const typed = sanitizeTextInsert(input);
+      if (typed.length > 0) {
+        setQuery((current) => current + typed);
+        setCursor(0);
       }
     }
   });
@@ -185,16 +228,25 @@ const SelectPrompt = <Value,>({
       <PromptFrame
         message={options.message}
         keys={[
-          [keys.upDown, "navigate"],
+          [`${keys.upDown}${searchable ? "" : "/j/k"}`, "navigate"],
+          ...(searchable ? ([["type", "filter"]] as const) : []),
           [keys.enter, "select"],
-          [keys.escape, escapeLabel],
+          [keys.escape, query === "" ? escapeLabel : "clear filter"],
         ]}
       >
-        <Menu
-          choices={options.options}
-          cursor={cursor}
-          visibleCount={options.visibleCount}
-        />
+        <Box flexDirection="column">
+          {searchable ? (
+            <Text tone="muted">
+              Filter: <Text color={theme.color.info}>{query || "all"}</Text>
+            </Text>
+          ) : null}
+          <Menu
+            choices={filtered.map(({ choice }) => choice)}
+            cursor={cursor}
+            visibleCount={visibleCount}
+            empty="No matching choices."
+          />
+        </Box>
       </PromptFrame>
       {footer}
     </Box>
@@ -212,22 +264,23 @@ export const selectScreen = <Value,>(
 
 export const menuScreen = <Value,>(
   options: MenuOptions<Value>,
-): Screen<Value> => ({
-  name: "menu",
-  render: ({ submit, cancel }) => (
-    <SelectPrompt
-      options={options}
-      submit={submit}
-      cancel={() =>
-        options.back !== undefined ? submit(options.back) : cancel()
-      }
-      summary={false}
-      header={options.header}
-      footer={options.footer}
-      escapeLabel={options.back !== undefined ? "back" : "exit"}
-    />
-  ),
-});
+): Screen<Value> => {
+  const hasBack = Object.hasOwn(options, "back");
+  return {
+    name: "menu",
+    render: ({ submit, cancel }) => (
+      <SelectPrompt
+        options={options}
+        submit={submit}
+        cancel={() => (hasBack ? submit(options.back as Value) : cancel())}
+        summary={false}
+        header={options.header}
+        footer={options.footer}
+        escapeLabel={hasBack ? "back" : "exit"}
+      />
+    ),
+  };
+};
 
 const MultiSelectPrompt = <Value,>({
   options,
@@ -239,6 +292,9 @@ const MultiSelectPrompt = <Value,>({
   readonly cancel: () => void;
 }) => {
   const keys = useKeyGlyphs();
+  const { rows } = useTerminalSize();
+  const visibleCount =
+    options.visibleCount ?? Math.max(3, Math.min(16, rows - 10));
   const [query, setQuery] = useState("");
   const filtered = useMemo(
     () =>
@@ -253,13 +309,33 @@ const MultiSelectPrompt = <Value,>({
     options.initialValues ?? [],
   );
   const [error, setError] = useState<string>();
-  const disabled = filtered.map(({ choice }) => {
-    return choice.disabled !== undefined && choice.disabled !== false;
-  });
-  const page = Math.max(1, options.visibleCount ?? 12);
+  const disabled = useMemo(
+    () =>
+      filtered.map(
+        ({ choice }) =>
+          choice.disabled !== undefined && choice.disabled !== false,
+      ),
+    [filtered],
+  );
+  useEffect(() => {
+    setCursor((current) => {
+      if (filtered.length === 0) return 0;
+      const clamped = Math.min(current, filtered.length - 1);
+      if (!disabled[clamped]) return clamped;
+      const enabled = disabled.findIndex((value) => !value);
+      return enabled === -1 ? clamped : enabled;
+    });
+  }, [disabled, filtered.length, setCursor]);
+  const page = Math.max(1, visibleCount);
   useTerminalInput((input, key) => {
-    if (key.up) setCursor(moveSkippingDisabled(disabled, cursor, -1));
-    else if (key.down) setCursor(moveSkippingDisabled(disabled, cursor, 1));
+    const plain = !key.ctrl && !key.meta;
+    if (key.up || (options.searchable === false && plain && input === "k"))
+      setCursor(moveSkippingDisabled(disabled, cursor, -1));
+    else if (
+      key.down ||
+      (options.searchable === false && plain && input === "j")
+    )
+      setCursor(moveSkippingDisabled(disabled, cursor, 1));
     else if (key.home) setCursor(jumpSkippingDisabled(disabled, cursor, 0));
     else if (key.end)
       setCursor(jumpSkippingDisabled(disabled, cursor, disabled.length - 1));
@@ -346,26 +422,32 @@ const MultiSelectPrompt = <Value,>({
       message={options.message}
       error={error}
       keys={[
-        [keys.upDown, "navigate"],
+        [
+          `${keys.upDown}${options.searchable === false ? "/j/k" : ""}`,
+          "navigate",
+        ],
         [keys.space, "toggle"],
         ["ctrl+a", "toggle all"],
         ...(options.searchable === false
           ? []
           : ([["type", "filter"]] as const)),
         [keys.enter, "confirm"],
+        [keys.escape, query === "" ? "cancel" : "clear filter"],
       ]}
     >
       <Box flexDirection="column">
         {options.searchable === false ? null : (
           <Text tone="muted">
             Filter: <Text color={theme.color.info}>{query || "all"}</Text>
+            {" · "}
+            {selected.size} selected
           </Text>
         )}
         <Menu
           choices={visibleChoices}
           cursor={cursor}
           selected={visibleSelected}
-          visibleCount={options.visibleCount}
+          visibleCount={visibleCount}
           empty="No matching choices."
         />
       </Box>
@@ -392,12 +474,15 @@ const CycleSelectPrompt = <State,>({
   readonly cancel: () => void;
 }) => {
   const keys = useKeyGlyphs();
+  const { rows } = useTerminalSize();
+  const visibleCount =
+    options.visibleCount ?? Math.max(3, Math.min(16, rows - 8));
   const navigation = useCycleNavigation(
     options.options.map((choice) => choice.states.length),
   );
   useCancel(cancel);
   const last = Math.max(0, options.options.length - 1);
-  const page = Math.max(1, options.visibleCount ?? 12);
+  const page = Math.max(1, visibleCount);
   useTerminalInput((input, key) => {
     const plain = !key.ctrl && !key.meta;
     if (key.up || (plain && input === "k")) navigation.move(-1);
@@ -415,19 +500,18 @@ const CycleSelectPrompt = <State,>({
         const state = choice.states[navigation.indices[index] ?? 0];
         return state === undefined ? [] : [state.value];
       });
-      const changed = options.options.filter(
-        (choice, index) =>
-          (navigation.indices[index] ?? 0) !== 0 && choice.states.length > 0,
-      );
+      const changed = options.options.flatMap((choice, index) => {
+        if ((navigation.indices[index] ?? 0) === 0) return [];
+        const state = choice.states[navigation.indices[index] ?? 0];
+        return state === undefined
+          ? []
+          : [`${choice.label}: ${state.label ?? "changed"}`];
+      });
       submit(
         values,
         <AnsweredPrompt
           message={options.message}
-          answer={
-            changed.length === 0
-              ? "no changes"
-              : changed.map((choice) => choice.label).join(", ")
-          }
+          answer={changed.length === 0 ? "no changes" : changed.join(", ")}
         />,
       );
     }
@@ -436,16 +520,17 @@ const CycleSelectPrompt = <State,>({
     <PromptFrame
       message={options.message}
       keys={[
-        [keys.upDown, "navigate"],
+        [`${keys.upDown}/j/k`, "navigate"],
         [`${keys.space}/${keys.leftRight}`, "change"],
         [keys.enter, "confirm"],
+        [keys.escape, "cancel"],
       ]}
     >
       <CycleList
         choices={options.options}
         cursor={navigation.cursor}
         indices={navigation.indices}
-        visibleCount={options.visibleCount}
+        visibleCount={visibleCount}
       />
     </PromptFrame>
   );
@@ -502,7 +587,9 @@ const ConfirmPrompt = ({
       message={options.message}
       keys={[
         [keys.leftRight, "choose"],
+        [keys.yesNo, "choose"],
         [keys.enter, "confirm"],
+        [keys.escape, "cancel"],
       ]}
     >
       <BooleanChoice value={value} />

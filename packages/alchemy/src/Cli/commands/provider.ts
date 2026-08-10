@@ -12,6 +12,7 @@ import {
 import { getEnv } from "../../Auth/Env.ts";
 import { loadConfigProvider } from "../../Util/ConfigProvider.ts";
 import { resolveProfileName } from "../ProfileSelection.ts";
+import { CliKit } from "../CliKit/CliKit.ts";
 import { collectAuthProviders } from "./profile/flows.ts";
 
 import { awsCommand } from "./aws.ts";
@@ -77,6 +78,7 @@ const checkEnvCommand = Command.make(
   { provider: providerFilter, main: config, envFile },
   instrumentCommand("provider.check-env")(
     Effect.fn(function* ({ provider: requested, main, envFile }) {
+      const cli = yield* CliKit;
       // The stack's own providers() registrations define "what this project
       // uses" — the built-in registry would flag providers the project never
       // touches. Outside a project, an explicit --provider list is required.
@@ -124,7 +126,10 @@ const checkEnvCommand = Command.make(
         for (const name of names) {
           const environment = registry[name]!.environment;
           if (environment.length === 0) {
-            yield* Console.log(`- ${name}: no CI environment contract`);
+            yield* cli.info({
+              message: name,
+              detail: "No CI environment contract",
+            });
             continue;
           }
           const missing: string[] = [];
@@ -136,15 +141,18 @@ const checkEnvCommand = Command.make(
             }
           }
           if (missing.length === 0) {
-            yield* Console.log(`ok ${name}`);
+            yield* cli.success(name);
           } else {
             failed = true;
-            yield* Console.log(`MISSING ${name}: ${missing.join(", ")}`);
+            yield* cli.error({
+              message: name,
+              detail: `Missing: ${missing.join(", ")}`,
+            });
           }
         }
         if (failed) {
-          yield* Console.error(
-            "\nSet the missing variables (see `alchemy provider list` for each provider's full contract).",
+          yield* cli.info(
+            "Set the missing variables; run `alchemy provider list` for each provider's full contract.",
           );
           yield* Effect.sync(() => {
             process.exitCode = 1;

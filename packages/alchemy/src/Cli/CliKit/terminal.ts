@@ -1,6 +1,6 @@
 /** Terminal-emulator features shared by CliKit components. */
 import { stripVTControlCharacters } from "node:util";
-import { theme } from "./theme.ts";
+import { glyphsFor, theme } from "./theme.ts";
 
 const ATTRIBUTION_COLORS = [
   theme.color.accent,
@@ -39,6 +39,9 @@ export const colorsEnabled = (): boolean => {
   return process.stdout.isTTY === true || process.stderr.isTTY === true;
 };
 
+/** The canonical Unicode-support decision for raw terminal strings. */
+export const unicodeEnabled = (): boolean => process.env.TERM !== "dumb";
+
 /** Environment override for child processes whose piped output returns here. */
 export const pipedColorEnv = (): Record<string, string> =>
   colorsEnabled() ? { FORCE_COLOR: process.env.FORCE_COLOR ?? "1" } : {};
@@ -60,7 +63,7 @@ export const linePrefix = (
       ((process.env.FORCE_COLOR !== undefined &&
         process.env.FORCE_COLOR !== "0") ||
         process.stdout.isTTY === true));
-  const divider = options.unicode === false ? "|" : theme.glyph.bar;
+  const divider = glyphsFor(options.unicode ?? unicodeEnabled()).bar;
   return colors
     ? `${ansiFg(sourceColor(id))}${id}${ANSI_RESET} ${divider}`
     : `${id} ${divider}`;

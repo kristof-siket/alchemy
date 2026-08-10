@@ -37,6 +37,9 @@ export const theme = {
     add: "✚",
     edit: "✎",
     refresh: "↻",
+    delete: "−",
+    replace: "↻",
+    run: "▶",
     bar: "│",
     mask: "▪",
     bullet: "•",
@@ -54,10 +57,41 @@ export const theme = {
     leftRight: "←/→",
     escape: "esc",
     space: "space",
+    tab: "tab",
+    yesNo: "y/n",
   },
 } as const;
 
 export type KeyHint = { readonly [Key in keyof typeof theme.keyHint]: string };
+export type GlyphName = keyof typeof theme.glyph;
+
+export const asciiGlyphs: { readonly [Key in GlyphName]: string } = {
+  section: "v",
+  active: ">",
+  success: "+",
+  warning: "!",
+  error: "x",
+  info: "i",
+  pointer: ">",
+  selected: "*",
+  unselected: "o",
+  checked: "x",
+  unchecked: "o",
+  add: "+",
+  edit: "~",
+  refresh: "r",
+  delete: "-",
+  replace: "r",
+  run: ">",
+  bar: "|",
+  mask: "*",
+  bullet: "*",
+  overflowUp: "^",
+  overflowDown: "v",
+};
+
+export const glyphsFor = (unicode: boolean) =>
+  unicode ? theme.glyph : asciiGlyphs;
 
 export type StatusVariant = "info" | "success" | "warning" | "error";
 

@@ -7,14 +7,10 @@ import {
   ProgressGroup,
   Spinner,
   Text,
+  useTerminalSize,
 } from "../CliKit/components.ts";
 import { CliKit, theme } from "../CliKit/index.ts";
 import { type EventSource, makeEventHub } from "./events.ts";
-
-/** Shared width for the scan and delete phase progress bars. */
-const BAR_WIDTH = 32;
-/** Fixed label column for the per-type delete rows. */
-const TYPE_LABEL_WIDTH = 40;
 
 // ---------------------------------------------------------------------------
 // Events
@@ -52,6 +48,8 @@ function ScanProgress(props: {
   source: EventSource<ScanEvent>;
 }): JSX.Element {
   const { total, source } = props;
+  const { columns, rows } = useTerminalSize();
+  const barWidth = Math.max(8, Math.min(32, columns - 30));
   const [state, setState] = useState<ScanState>(() => ({
     scanned: 0,
     toDelete: 0,
@@ -77,14 +75,17 @@ function ScanProgress(props: {
   }, [source]);
 
   const done = state.scanned >= total;
-  const stragglers = state.inFlight.slice(0, 10);
+  const stragglers = state.inFlight.slice(
+    0,
+    Math.max(1, Math.min(10, rows - 8)),
+  );
 
   return (
     <Box flexDirection="column">
       <Box flexDirection="row">
         <ProgressBar
           value={total === 0 ? 1 : state.scanned / total}
-          width={BAR_WIDTH}
+          width={barWidth}
           variant={done ? "success" : "info"}
           showPercent={false}
         />
@@ -145,6 +146,10 @@ function DeleteProgress(props: {
   source: EventSource<DeleteEvent>;
 }): JSX.Element {
   const { totals, source } = props;
+  const { columns } = useTerminalSize();
+  const barWidth = Math.max(8, Math.min(32, columns - 30));
+  const groupBarWidth = Math.max(6, Math.min(20, Math.floor(columns / 4)));
+  const labelWidth = Math.max(12, Math.min(40, columns - groupBarWidth - 20));
   const grandTotal = totals.reduce((a, b) => a + b.total, 0);
   const [pass, setPass] = useState(1);
   const [rows, setRows] = useState<Map<string, TypeProgress>>(
@@ -188,7 +193,7 @@ function DeleteProgress(props: {
       <Box flexDirection="row">
         <ProgressBar
           value={grandTotal === 0 ? 1 : totalDeleted / grandTotal}
-          width={BAR_WIDTH}
+          width={barWidth}
           variant="error"
           showPercent={false}
         />
@@ -200,7 +205,8 @@ function DeleteProgress(props: {
         <Text tone="muted"> · pass {pass}</Text>
       </Box>
       <ProgressGroup
-        labelWidth={TYPE_LABEL_WIDTH}
+        width={groupBarWidth}
+        labelWidth={labelWidth}
         rows={sorted.map(([id, row]) => ({
           id,
           label: id,

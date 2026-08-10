@@ -4,7 +4,7 @@
  * logging CLI so an action never renders two different hues.
  */
 import type { ApplyStatus } from "../Event.ts";
-import { theme } from "../CliKit/index.ts";
+import { theme, type GlyphName } from "../CliKit/index.ts";
 
 /** Every verb a plan row can carry (resource CRUD + namespace/action rollups). */
 export type PlanAction =
@@ -18,17 +18,17 @@ export type PlanAction =
 
 export interface ActionStyle {
   readonly color: string;
-  readonly icon: string;
+  readonly icon: GlyphName;
 }
 
 export const actionStyle: Record<PlanAction, ActionStyle> = {
-  create: { color: theme.color.success, icon: "+" },
-  update: { color: theme.color.warning, icon: "~" },
-  delete: { color: theme.color.danger, icon: "-" },
-  replace: { color: theme.color.warning, icon: "!" },
-  noop: { color: theme.color.muted, icon: "•" },
-  mixed: { color: theme.color.info, icon: "*" },
-  run: { color: theme.color.info, icon: "λ" },
+  create: { color: theme.color.success, icon: "add" },
+  update: { color: theme.color.warning, icon: "edit" },
+  delete: { color: theme.color.danger, icon: "delete" },
+  replace: { color: theme.color.warning, icon: "replace" },
+  noop: { color: theme.color.muted, icon: "bullet" },
+  mixed: { color: theme.color.info, icon: "info" },
+  run: { color: theme.color.info, icon: "run" },
 };
 
 export const applyStatusColor = (
@@ -60,7 +60,6 @@ export const applyStatusColor = (
 };
 
 export const isInProgress = (status: ApplyStatus): boolean =>
-  status === "pending" ||
   status === "creating" ||
   status === "updating" ||
   status === "deleting" ||

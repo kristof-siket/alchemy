@@ -552,12 +552,14 @@ export const editProfileFlow = Effect.fn(function* (options: {
     }
     type EditStep = { provider: string; action: EditAction } | null;
     const { editStateStyle } = yield* profileTui;
+    const prompt = yield* CliKit.CliKit;
+    const glyphs = CliKit.glyphsFor(prompt.capabilities.unicode);
     const stateFor = (
       state: keyof typeof editStateStyle,
       value: EditStep,
     ): CliKit.CycleChoice<EditStep>["states"][number] => ({
       value,
-      icon: editStateStyle[state].icon,
+      icon: glyphs[editStateStyle[state].icon],
       label: editStateStyle[state].label,
       variant:
         state === "remove"
@@ -591,13 +593,13 @@ export const editProfileFlow = Effect.fn(function* (options: {
       },
     );
 
-    const selections = yield* (yield* CliKit.CliKit).cycleSelect({
+    const selections = yield* prompt.cycleSelect({
       message: `Manage accounts in profile '${selectedProfile}'`,
       options,
     });
     plan = selections.filter((step) => step !== null);
     if (plan.length === 0) {
-      yield* (yield* CliKit.CliKit).info("No changes.");
+      yield* prompt.info("No changes.");
       return;
     }
     confirmDeletes = true;

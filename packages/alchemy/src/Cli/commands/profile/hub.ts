@@ -121,28 +121,28 @@ export const profileHub = Effect.fn(function* (options: {
             case "create": {
               yield* profiles.createProfile(action.name);
               return {
-                message: `created profile '${action.name}'`,
+                message: `Created profile '${action.name}'.`,
                 selected: action.name,
               };
             }
             case "rename": {
               const newName = yield* applyRename(action.name, action.newName);
               return {
-                message: `renamed '${action.name}' to '${newName}'`,
+                message: `Renamed '${action.name}' to '${newName}'.`,
                 selected: newName,
               };
             }
             case "set-default": {
               yield* profiles.setDefaultProfile(action.name);
               return {
-                message: `default profile set to '${action.name}'`,
+                message: `Default profile set to '${action.name}'.`,
                 selected: action.name,
               };
             }
             case "delete": {
               yield* removeProfileWithCredentials(action.name);
               return {
-                message: `deleted '${action.name}' and its credentials`,
+                message: `Deleted '${action.name}' and its credentials.`,
                 selected: undefined,
               };
             }
@@ -179,7 +179,7 @@ export const profileHub = Effect.fn(function* (options: {
                 printSummary: false,
               }),
             );
-            return "accounts updated";
+            return "Accounts updated.";
           }
           yield* attempt(
             undefined,
@@ -190,7 +190,7 @@ export const profileHub = Effect.fn(function* (options: {
               main,
             }),
           );
-          return "credentials refreshed";
+          return "Credentials refreshed.";
         }),
       reloadEntries: computeEntries.pipe(
         Effect.map((entries) => {

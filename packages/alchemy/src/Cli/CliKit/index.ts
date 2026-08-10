@@ -4,7 +4,9 @@ export { openUrl } from "./openUrl.ts";
 export { NonInteractiveTerminal, TerminalCancelled } from "./errors.ts";
 export {
   statusColor,
+  glyphsFor,
   theme,
+  type GlyphName,
   type KeyHint,
   type StatusVariant,
 } from "./theme.ts";
@@ -21,6 +23,7 @@ export {
   pipedColorEnv,
   stripAnsi,
   truncate,
+  unicodeEnabled,
 } from "./terminal.ts";
 export {
   Screen,

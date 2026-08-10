@@ -59,6 +59,8 @@ export interface SelectOptions<Value> {
   readonly options: ReadonlyArray<Choice<Value>>;
   readonly initialValue?: Value;
   readonly visibleCount?: number;
+  /** Allow typing to filter choices by label and description. */
+  readonly searchable?: boolean;
 }
 
 export interface MultiSelectOptions<Value> extends Omit<
@@ -109,8 +111,9 @@ export interface MenuOptions<Value> extends SelectOptions<Value> {
   readonly footer?: View;
   /**
    * Value returned by Escape. Without it, Escape cancels the application.
-   * Must not be `undefined` when provided — the menu treats `undefined`
-   * as "no back target".
+   * `undefined` is a valid back value when it is part of `Value`; presence of
+   * the property, rather than its value, determines whether a back target
+   * exists.
    */
   readonly back?: Value;
 }

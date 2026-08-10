@@ -258,7 +258,7 @@ const clearCommand = Command.make(
               : [{ stack: stackName, stage: stageName }];
 
           if (targets.length === 0) {
-            yield* (yield* CliKit.CliKit).info("nothing to clear");
+            yield* (yield* CliKit.CliKit).info("Nothing to clear.");
             return;
           }
 
@@ -281,7 +281,7 @@ const clearCommand = Command.make(
             (target) => state.deleteStack(target),
             { concurrency: 32 },
           );
-          yield* (yield* CliKit.CliKit).success(`cleared ${scope}`);
+          yield* (yield* CliKit.CliKit).success(`Cleared ${scope}.`);
         }),
       );
     }),
@@ -296,13 +296,14 @@ const stateExplorer = (args: StateArgs) =>
         Effect.gen(function* () {
           const stacks = [...(yield* state.listStacks())].sort();
           if (stacks.length === 0) {
-            yield* cli.info("no stacks");
+            yield* cli.info("No stacks.");
             return;
           }
           while (true) {
             const stack = yield* cli.menu<string | undefined>({
               message: "Select a stack",
               back: undefined,
+              searchable: true,
               options: stacks.map((value) => ({ value, label: value })),
             });
             if (stack === undefined) return;
@@ -310,12 +311,13 @@ const stateExplorer = (args: StateArgs) =>
             while (true) {
               const stages = [...(yield* state.listStages(stack))].sort();
               if (stages.length === 0) {
-                yield* cli.info(`no stages in ${stack}`);
+                yield* cli.info(`No stages in ${stack}.`);
                 break;
               }
               const stage = yield* cli.menu<string | undefined>({
                 message: stack,
                 back: undefined,
+                searchable: true,
                 options: stages.map((value) => ({ value, label: value })),
               });
               if (stage === undefined) break;
@@ -323,17 +325,19 @@ const stateExplorer = (args: StateArgs) =>
               while (true) {
                 const fqns = [...(yield* state.list({ stack, stage }))].sort();
                 if (fqns.length === 0) {
-                  yield* cli.info(`no resources in ${stack}/${stage}`);
+                  yield* cli.info(`No resources in ${stack}/${stage}.`);
                   break;
                 }
                 const fqn = yield* cli.menu<string | undefined>({
                   message: `${stack}/${stage}`,
                   back: undefined,
+                  searchable: true,
                   options: fqns.map((value) => ({ value, label: value })),
                 });
                 if (fqn === undefined) break;
                 const value = yield* state.get({ stack, stage, fqn });
                 yield* cli.alert({
+                  variant: value === undefined ? "warning" : "info",
                   title: fqn,
                   message:
                     value === undefined

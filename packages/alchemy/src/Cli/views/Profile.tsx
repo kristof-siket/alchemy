@@ -1,5 +1,11 @@
 /** @jsxImportSource react */
-import { Box, Gutter, SectionHeading, Text } from "../CliKit/components.ts";
+import {
+  Box,
+  Gutter,
+  SectionHeading,
+  Text,
+  useGlyphs,
+} from "../CliKit/components.ts";
 import type { JSX } from "react";
 import { theme } from "../CliKit/index.ts";
 
@@ -23,22 +29,22 @@ export interface ProfileListDisplay {
 export const providerStatusStyle = {
   ready: {
     color: theme.color.success,
-    glyph: theme.glyph.success,
+    glyph: "success",
     label: "ready",
   },
   configured: {
     color: theme.color.warning,
-    glyph: theme.glyph.info,
+    glyph: "warning",
     label: "configured",
   },
   reauth: {
     color: theme.color.warning,
-    glyph: theme.glyph.refresh,
+    glyph: "refresh",
     label: "needs re-login",
   },
   error: {
     color: theme.color.danger,
-    glyph: theme.glyph.error,
+    glyph: "error",
     label: "error",
   },
 } as const;
@@ -50,31 +56,31 @@ export const providerStatusStyle = {
  */
 export const editStateStyle = {
   keep: {
-    icon: theme.glyph.selected,
+    icon: "selected",
     color: theme.color.success,
     variant: "success",
     label: undefined,
   },
   skip: {
-    icon: theme.glyph.unselected,
+    icon: "unselected",
     color: undefined,
     variant: "neutral",
     label: undefined,
   },
   add: {
-    icon: theme.glyph.add,
+    icon: "add",
     color: theme.color.success,
     variant: "success",
     label: "add",
   },
   reconfigure: {
-    icon: theme.glyph.edit,
+    icon: "edit",
     color: theme.color.warning,
     variant: "warning",
     label: "reconfigure",
   },
   remove: {
-    icon: theme.glyph.error,
+    icon: "error",
     color: theme.color.danger,
     variant: "error",
     label: "remove",
@@ -111,6 +117,7 @@ function ProfileList({
 }: {
   readonly profiles: ReadonlyArray<ProfileListDisplay>;
 }): JSX.Element {
+  const glyphs = useGlyphs();
   const nameWidth = columnWidth(profiles.map((profile) => profile.name));
   return (
     <Box flexDirection="column">
@@ -127,9 +134,7 @@ function ProfileList({
         profiles.map((profile) => (
           <Gutter key={profile.name}>
             <Box flexDirection="row">
-              <Text tone="brand">
-                {profile.active ? theme.glyph.selected : " "}
-              </Text>
+              <Text tone="brand">{profile.active ? glyphs.selected : " "}</Text>
               <Text> </Text>
               <Box width={nameWidth} flexShrink={0}>
                 <Text bold={profile.active}>{profile.name}</Text>
@@ -146,7 +151,7 @@ function ProfileList({
 /**
  * Provider table body shared by `profile show` and the dashboard's detail
  * pane, so the two render identically. The dashboard passes `reauthHint` to
- * advertise its `f` keybinding on rows that need a re-login.
+ * advertise its `r` keybinding on rows that need a re-login.
  */
 export function ProfileDetailsBody({
   providers,
@@ -156,6 +161,7 @@ export function ProfileDetailsBody({
   /** Muted hint appended to rows with `status: "reauth"`. */
   readonly reauthHint?: string;
 }): JSX.Element {
+  const glyphs = useGlyphs();
   const nameWidth = columnWidth(providers.map((provider) => provider.name));
   const methodWidth = columnWidth(providers.map((provider) => provider.method));
   return (
@@ -181,7 +187,7 @@ export function ProfileDetailsBody({
                     <Text tone="muted">{provider.method}</Text>
                   </Box>
                   <Text color={status.color}>
-                    {status.glyph} {status.label}
+                    {glyphs[status.glyph]} {status.label}
                   </Text>
                   {reauthHint !== undefined && provider.status === "reauth" ? (
                     <Text tone="muted"> — {reauthHint}</Text>
@@ -229,12 +235,13 @@ function ProfileNotice({
   readonly profile: string;
   readonly message: string;
 }): JSX.Element {
+  const glyphs = useGlyphs();
   return (
     <Box flexDirection="column">
       <SectionHeading>Profile {profile}</SectionHeading>
       <Gutter>
         <Text color={theme.color.warning}>
-          {theme.glyph.warning} {message}
+          {glyphs.warning} {message}
         </Text>
       </Gutter>
     </Box>
@@ -248,9 +255,10 @@ function CurrentProfile({
   readonly name: string;
   readonly source: string;
 }): JSX.Element {
+  const glyphs = useGlyphs();
   return (
     <Text>
-      <Text tone="brand">{theme.glyph.selected}</Text> <Text bold>{name}</Text>{" "}
+      <Text tone="brand">{glyphs.selected}</Text> <Text bold>{name}</Text>{" "}
       <Text tone="muted">({source})</Text>
     </Text>
   );

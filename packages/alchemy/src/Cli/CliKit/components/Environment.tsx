@@ -9,7 +9,7 @@ import {
   useState,
 } from "react";
 import type { CliKitCapabilities } from "../types.ts";
-import { theme, type KeyHint } from "../theme.ts";
+import { glyphsFor, theme, type KeyHint } from "../theme.ts";
 
 const defaults: CliKitCapabilities = {
   input: false,
@@ -57,30 +57,7 @@ export const CliEnvironment = ({
 
 export const useCliEnvironment = () => useContext(EnvironmentContext);
 
-const asciiGlyphs: { readonly [Key in keyof typeof theme.glyph]: string } = {
-  section: "v",
-  active: ">",
-  success: "+",
-  warning: "!",
-  error: "x",
-  info: "i",
-  pointer: ">",
-  selected: "*",
-  unselected: "o",
-  checked: "x",
-  unchecked: "o",
-  add: "+",
-  edit: "~",
-  refresh: "r",
-  bar: "|",
-  mask: "*",
-  bullet: "*",
-  overflowUp: "^",
-  overflowDown: "v",
-};
-
-export const useGlyphs = () =>
-  useCliEnvironment().unicode ? theme.glyph : asciiGlyphs;
+export const useGlyphs = () => glyphsFor(useCliEnvironment().unicode);
 
 const asciiKeyHint: KeyHint = {
   enter: "enter",
@@ -88,6 +65,8 @@ const asciiKeyHint: KeyHint = {
   leftRight: "left/right",
   escape: "esc",
   space: "space",
+  tab: "tab",
+  yesNo: "y/n",
 };
 
 /** Key-hint labels for `KeyBar` footers, honoring the ASCII fallback. */

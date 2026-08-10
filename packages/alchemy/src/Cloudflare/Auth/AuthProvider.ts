@@ -152,6 +152,7 @@ const selectAccount = (accessToken: string) =>
     return yield* prompt
       .select({
         message: "Select a Cloudflare account",
+        searchable: true,
         options: accounts.map((a) => ({
           value: a.id,
           label: a.name,

@@ -1,6 +1,6 @@
 /** @jsxImportSource react */
 import { useMemo, type JSX } from "react";
-import { Box, Row, TaskRow, Text } from "../CliKit/components.ts";
+import { Box, Row, TaskRow, Text, useGlyphs } from "../CliKit/components.ts";
 import type {
   Plan as AlchemyPlan,
   CRUD,
@@ -14,27 +14,40 @@ import { NamespaceRow, namespaceStyle } from "./PlanRow.tsx";
 
 export interface PlanProps {
   plan: AlchemyPlan;
+  /** First tree row to render, used by interactive plan review. */
+  offset?: number;
+  /** Maximum tree rows to render. Omit to render the complete plan. */
+  limit?: number;
 }
 
-export function Plan({ plan }: PlanProps): JSX.Element {
-  const { items, taskItems, flatItems } = useMemo(() => {
-    const items = [
-      ...Object.values(plan.resources),
-      ...Object.values(plan.deletions),
-    ] as CRUD[];
-    const taskItems = [
-      ...Object.values(plan.actions ?? {}),
-      ...Object.values(plan.actionDeletions ?? {}),
-    ].filter((task): task is ActionApply | ActionDelete => task !== undefined);
-    return {
-      items,
-      taskItems,
-      flatItems: flattenTree(buildNamespaceTree(items, taskItems)),
-    };
-  }, [plan]);
+const buildPlanContent = (plan: AlchemyPlan) => {
+  const items = [
+    ...Object.values(plan.resources),
+    ...Object.values(plan.deletions),
+  ] as CRUD[];
+  const taskItems = [
+    ...Object.values(plan.actions ?? {}),
+    ...Object.values(plan.actionDeletions ?? {}),
+  ].filter((task): task is ActionApply | ActionDelete => task !== undefined);
+  return {
+    items,
+    taskItems,
+    flatItems: flattenTree(buildNamespaceTree(items, taskItems)),
+  };
+};
+
+export const countPlanRows = (plan: AlchemyPlan): number =>
+  buildPlanContent(plan).flatItems.length;
+
+export function Plan({ plan, offset = 0, limit }: PlanProps): JSX.Element {
+  const glyphs = useGlyphs();
+  const { items, taskItems, flatItems } = useMemo(
+    () => buildPlanContent(plan),
+    [plan],
+  );
 
   if (items.length === 0 && taskItems.length === 0) {
-    return <Text tone="muted">No changes planned</Text>;
+    return <Text tone="muted">No changes planned.</Text>;
   }
 
   const counts = { create: 0, update: 0, delete: 0, noop: 0, replace: 0 };
@@ -56,7 +69,7 @@ export function Plan({ plan }: PlanProps): JSX.Element {
           {
             key: "run",
             label: `${taskCounts.run} to run`,
-            color: theme.color.info,
+            color: namespaceStyle("run").color,
           },
         ]
       : []),
@@ -65,11 +78,17 @@ export function Plan({ plan }: PlanProps): JSX.Element {
           {
             key: "drop",
             label: `${taskCounts.delete} to drop`,
-            color: theme.color.info,
+            color: namespaceStyle("delete").color,
           },
         ]
       : []),
   ];
+  const start = Math.max(0, Math.min(offset, flatItems.length));
+  const end =
+    limit === undefined
+      ? flatItems.length
+      : Math.min(flatItems.length, start + Math.max(1, limit));
+  const visibleItems = flatItems.slice(start, end);
 
   return (
     <Box flexDirection="column" gap={1}>
@@ -84,7 +103,12 @@ export function Plan({ plan }: PlanProps): JSX.Element {
         ))}
       </Box>
       <Box flexDirection="column">
-        {flatItems.map((item) => {
+        {start > 0 ? (
+          <Text tone="muted">
+            {glyphs.overflowUp} {start} earlier rows
+          </Text>
+        ) : null}
+        {visibleItems.map((item) => {
           const style = namespaceStyle(item.action);
           const key = item.path.join("/");
 
@@ -102,7 +126,7 @@ export function Plan({ plan }: PlanProps): JSX.Element {
           if (item.type === "binding") {
             return (
               <Row key={key} gap={1} paddingLeft={item.depth * 2}>
-                <Text color={style.color}>{style.icon}</Text>
+                <Text color={style.color}>{glyphs[style.icon]}</Text>
                 <Text color={theme.color.info}>{item.bindingSid}</Text>
               </Row>
             );
@@ -112,7 +136,7 @@ export function Plan({ plan }: PlanProps): JSX.Element {
             return (
               <TaskRow
                 key={key}
-                icon={style.icon}
+                icon={glyphs[style.icon]}
                 iconColor={style.color}
                 label={item.id}
                 detail={`(${item.actionType})`}
@@ -132,7 +156,7 @@ export function Plan({ plan }: PlanProps): JSX.Element {
           return (
             <TaskRow
               key={key}
-              icon={style.icon}
+              icon={glyphs[style.icon]}
               iconColor={style.color}
               label={item.id}
               detail={`(${item.resourceType})`}
@@ -147,6 +171,11 @@ export function Plan({ plan }: PlanProps): JSX.Element {
             </TaskRow>
           );
         })}
+        {end < flatItems.length ? (
+          <Text tone="muted">
+            {glyphs.overflowDown} {flatItems.length - end} more rows
+          </Text>
+        ) : null}
       </Box>
     </Box>
   );

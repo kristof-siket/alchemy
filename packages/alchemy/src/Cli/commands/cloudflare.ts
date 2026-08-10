@@ -260,9 +260,7 @@ const selectAccountIds = (defaultAccountId: string | undefined) =>
       return [account.id];
     }
     return yield* (yield* CliKit.CliKit).multiSelect<string>({
-      message:
-        "Select the Cloudflare account(s) to scope the token to " +
-        "(space to toggle, enter to confirm)",
+      message: "Select the Cloudflare accounts to scope the token to",
       initialValues: defaultAccountId ? [defaultAccountId] : undefined,
       options: accounts.map((a) => ({
         value: a.id,
@@ -441,8 +439,7 @@ const createTokenCommand = Command.make(
             .sort((a, b) => a.name.localeCompare(b.name));
 
           const chosenIds = yield* (yield* CliKit.CliKit).multiSelect<string>({
-            message:
-              "Select the permission groups to grant (space to toggle, enter to confirm)",
+            message: "Select the permission groups to grant",
             options: selectable.map((g) => ({
               value: g.id,
               label: g.name,

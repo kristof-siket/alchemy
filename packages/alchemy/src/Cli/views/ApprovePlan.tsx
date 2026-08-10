@@ -8,10 +8,11 @@ import {
   useGlyphs,
   useKeyGlyphs,
   useTerminalInput,
+  useTerminalSize,
 } from "../CliKit/components.ts";
 import { Screen, theme, type ScreenController } from "../CliKit/index.ts";
 import type { Plan as AlchemyPlan } from "../../Plan.ts";
-import { Plan } from "./Plan.tsx";
+import { countPlanRows, Plan } from "./Plan.tsx";
 
 export interface ApprovePlanProps {
   plan: AlchemyPlan;
@@ -28,6 +29,13 @@ export function ApprovePlan(props: ApprovePlanProps): JSX.Element {
   const [approved, setApproved] = useState(true);
   const glyphs = useGlyphs();
   const keys = useKeyGlyphs();
+  const { rows } = useTerminalSize();
+  const totalRows = countPlanRows(plan);
+  const visibleRows = Math.max(4, rows - 14);
+  const maxOffset = Math.max(0, totalRows - visibleRows);
+  const [offset, setOffset] = useState(0);
+  const scroll = (delta: number) =>
+    setOffset((current) => Math.max(0, Math.min(maxOffset, current + delta)));
 
   const complete = (answer: boolean) =>
     controller.submit(
@@ -39,8 +47,13 @@ export function ApprovePlan(props: ApprovePlanProps): JSX.Element {
     );
 
   useTerminalInput((input, key) => {
-    if (key.left || key.right || key.tab || key.up || key.down)
-      setApproved((current) => !current);
+    if (key.left || key.right || key.tab) setApproved((current) => !current);
+    else if (key.up) scroll(-1);
+    else if (key.down) scroll(1);
+    else if (key.pageUp) scroll(-visibleRows);
+    else if (key.pageDown) scroll(visibleRows);
+    else if (key.home) setOffset(0);
+    else if (key.end) setOffset(maxOffset);
     else if (key.enter) complete(approved);
     else if (key.escape) controller.cancel();
     else if (key.ctrl || key.meta) return;
@@ -50,13 +63,20 @@ export function ApprovePlan(props: ApprovePlanProps): JSX.Element {
 
   return (
     <Box flexDirection="column" gap={1} marginTop={1}>
-      <Plan plan={plan} />
+      <Plan plan={plan} offset={offset} limit={visibleRows} />
       <Box flexDirection="column" gap={1}>
         <Text bold>Proceed?</Text>
         <BooleanChoice value={approved} />
         <KeyBar
           keys={[
+            ...(maxOffset > 0
+              ? ([
+                  [keys.upDown, "scroll plan"],
+                  ["pgup/pgdn", "page"],
+                ] as const)
+              : []),
             [keys.leftRight, "choose"],
+            [keys.yesNo, "choose"],
             [keys.enter, "confirm"],
             [keys.escape, "cancel"],
           ]}

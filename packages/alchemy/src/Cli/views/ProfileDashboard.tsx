@@ -185,16 +185,11 @@ class DashStore extends LiveStore<DashState> {
 // --- building blocks --------------------------------------------------------
 
 const DetailsPane = ({ details }: { details: Details }): JSX.Element => {
-  const glyphs = useGlyphs();
   if (details.state === "loading") {
     return <Spinner label="resolving credentials…" />;
   }
   if (details.state === "failed") {
-    return (
-      <Text color={theme.color.danger}>
-        {glyphs.error} {details.message}
-      </Text>
-    );
+    return <Status variant="error">{details.message}</Status>;
   }
   if (details.providers.length === 0) {
     return (
@@ -206,7 +201,7 @@ const DetailsPane = ({ details }: { details: Details }): JSX.Element => {
   return (
     <ProfileDetailsBody
       providers={details.providers}
-      reauthHint="press f to re-login"
+      reauthHint="press r to re-login"
     />
   );
 };
@@ -234,28 +229,44 @@ const EditScreen = ({
     rows.map((row) => row.states.length),
   );
   const keys = useKeyGlyphs();
+  const glyphs = useGlyphs();
   useTerminalInput((input, key) => {
+    const plain = !key.ctrl && !key.meta;
     if (key.escape) return onBack();
-    if (key.up) move(-1);
-    else if (key.down) move(1);
-    else if (input === " " || key.right) cycle(1);
+    if (key.up || (plain && input === "k")) move(-1);
+    else if (key.down || (plain && input === "j")) move(1);
+    else if ((plain && input === " ") || key.right) cycle(1);
     else if (key.left) cycle(-1);
     else if (key.enter) onApply(rows.map((row, i) => row.states[indices[i]]!));
   });
+  if (rows.length === 0) {
+    return (
+      <Stack gap={1}>
+        <Text>
+          <Text bold color={theme.color.accent}>
+            edit accounts
+          </Text>
+          <Text tone="muted"> · {profile}</Text>
+        </Text>
+        <Status>No providers are available for this profile.</Status>
+        <KeyBar keys={[[keys.escape, "back"]]} />
+      </Stack>
+    );
+  }
   const choices = rows.map((row) => ({
     label: row.provider,
     description: row.method ?? "not connected",
     states: row.states.map((state) => ({
       value: state,
       label: editStateStyle[state].label,
-      icon: editStateStyle[state].icon,
+      icon: glyphs[editStateStyle[state].icon],
       variant: editStateStyle[state].variant,
     })),
   }));
   return (
     <Stack gap={1}>
       <Text>
-        <Text bold color={theme.color.accentBright}>
+        <Text bold color={theme.color.accent}>
           edit accounts
         </Text>
         <Text tone="muted"> · {profile}</Text>
@@ -263,7 +274,7 @@ const EditScreen = ({
       <CycleList choices={choices} cursor={cursor} indices={indices} />
       <KeyBar
         keys={[
-          [keys.upDown, "navigate"],
+          [`${keys.upDown}/j/k`, "navigate"],
           [`${keys.space}/${keys.leftRight}`, "change"],
           [keys.enter, "confirm"],
           [keys.escape, "back"],
@@ -316,17 +327,17 @@ const Dashboard = ({
       setMode("create");
     } else if (entry === undefined) {
       return;
-    } else if (key.left || (key.shift && key.tab)) {
+    } else if (key.left || input === "h" || (key.shift && key.tab)) {
       setSelected((s) => (s + entries.length - 1) % entries.length);
-    } else if (key.right || key.tab) {
+    } else if (key.right || input === "l" || key.tab) {
       setSelected((s) => (s + 1) % entries.length);
-    } else if (input === "r") {
+    } else if (input === "R") {
       setMode("rename");
     } else if (input === "d" && !entry.isDefault) {
       setMode("delete");
     } else if ((input === "e" || key.enter) && details?.state === "ready") {
       setScreen("edit");
-    } else if (input === "f") {
+    } else if (input === "r") {
       store.dispatch({ kind: "refresh", name: entry.name });
     } else if (input === "s" && !entry.isDefault) {
       store.dispatch({ kind: "set-default", name: entry.name });
@@ -336,7 +347,7 @@ const Dashboard = ({
   if (flow !== undefined && !flow.inline) {
     return (
       <Text>
-        <Text bold color={theme.color.accentBright}>
+        <Text bold color={theme.color.accent}>
           {flow.kind === "refresh" ? "refresh" : "edit accounts"}
         </Text>
         <Text tone="muted"> · {flow.name}</Text>
@@ -408,21 +419,23 @@ const Dashboard = ({
     entry === undefined
       ? [
           ["n", "new"],
-          ["q", "quit"],
+          [`${keyGlyphs.escape}/q`, "quit"],
         ]
       : [
-          [keyGlyphs.leftRight, "switch"],
-          ["e", "edit"],
-          ["f", "refresh"],
+          [`${keyGlyphs.leftRight}/h/l/${keyGlyphs.tab}`, "switch"],
+          ...(details?.state === "ready"
+            ? ([[`e/${keyGlyphs.enter}`, "edit"]] as const)
+            : []),
+          ["r", "refresh"],
           ["n", "new"],
-          ["r", "rename"],
+          ["shift+r", "rename"],
           ...(entry.isDefault
             ? []
             : ([
                 ["s", "set default"],
                 ["d", "delete"],
               ] as const)),
-          ["q", "quit"],
+          [`${keyGlyphs.escape}/q`, "quit"],
         ];
 
   return (
@@ -441,7 +454,7 @@ const Dashboard = ({
         ) : (
           <>
             <Text>
-              <Text bold color={theme.color.accentBright}>
+              <Text bold color={theme.color.accent}>
                 {entry.name}
               </Text>
               {annotation === "" ? null : (
@@ -468,7 +481,7 @@ const Dashboard = ({
         ) : null}
       </Box>
       <Stack>
-        {mode === "normal" ? (
+        {mode === "normal" && !busy && flow === undefined ? (
           <KeyBar keys={keybinds} />
         ) : mode === "delete" && entry !== undefined ? (
           <InlineConfirm
@@ -483,7 +496,7 @@ const Dashboard = ({
         ) : (
           <Stack>
             <Text>
-              <Text bold color={theme.color.accentBright}>
+              <Text bold color={theme.color.accent}>
                 {mode === "rename" && entry !== undefined
                   ? `rename '${entry.name}' to`
                   : "new profile name"}

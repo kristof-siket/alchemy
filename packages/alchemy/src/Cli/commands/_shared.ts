@@ -35,7 +35,15 @@ import { TerminalCancelled } from "../../Cli/CliKit/index.ts";
 import { CliKit } from "../CliKit/CliKit.ts";
 // leaf imports (not the ui barrel): this module runs at CLI startup, before
 // selectCli decides whether ink is needed at all
-import { ANSI_DIM, ANSI_RESET, ansiFg, theme } from "../CliKit/index.ts";
+import {
+  ANSI_DIM,
+  ANSI_RESET,
+  ansiFg,
+  colorsEnabled,
+  glyphsFor,
+  theme,
+  unicodeEnabled,
+} from "../CliKit/index.ts";
 import { loadConfigProvider } from "../../Util/ConfigProvider.ts";
 import { fileLogger } from "../../Util/FileLogger.ts";
 
@@ -110,7 +118,7 @@ export const handleCancellation = <A, E, R>(self: Effect.Effect<A, E, R>) =>
       });
       return cancelled
         ? Console.log(
-            process.stdout.isTTY
+            colorsEnabled()
               ? `\n${ANSI_DIM}Cancelled.${ANSI_RESET}`
               : "\nCancelled.",
           ).pipe(
@@ -127,7 +135,7 @@ export const handleCancellation = <A, E, R>(self: Effect.Effect<A, E, R>) =>
     // causes as EXIT_CANCELLED on its own.
     Effect.onInterrupt(() =>
       Console.log(
-        process.stdout.isTTY
+        colorsEnabled()
           ? `\n${ANSI_DIM}Interrupted.${ANSI_RESET}`
           : "\nInterrupted.",
       ),
@@ -195,8 +203,9 @@ export const handleUserErrors = <A, E, R>(self: Effect.Effect<A, E, R>) =>
             ? reason.defect
             : undefined;
         if (isUserFacingError(error)) {
+          const glyphs = glyphsFor(unicodeEnabled());
           return Console.error(
-            `${process.stderr.isTTY ? `${ansiFg(theme.color.danger)}${theme.glyph.error} error:${ANSI_RESET}` : "error:"} ${error.message}`,
+            `${colorsEnabled() ? `${ansiFg(theme.color.danger)}${glyphs.error} error:${ANSI_RESET}` : "error:"} ${error.message}`,
           ).pipe(
             Effect.flatMap(() => Effect.fail(new ReportedCliError(cause))),
           ) as Effect.Effect<never, E | ReportedCliError, never>;

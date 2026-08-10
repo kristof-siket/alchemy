@@ -872,7 +872,7 @@ const nukeCommand = Command.make(
 );
 
 export const unsafeCommand = Command.make("unsafe", {}).pipe(
-  Command.withDescription("Dangerous, irreversible operations."),
+  Command.withDescription("Dangerous, irreversible operations"),
   Command.withSubcommands([nukeCommand]),
   Command.unlisted,
 );

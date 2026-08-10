@@ -11,6 +11,7 @@ import {
   ANSI_BOLD,
   ANSI_DIM,
   ansiFg,
+  glyphsFor,
   paint,
   stripAnsi,
   truncate,
@@ -257,7 +258,7 @@ const SubHelp = ({ doc }: { doc: HelpDoc }): JSX.Element => {
 };
 
 const formatSubHelp = (cli: CliKitService, doc: HelpDoc) => {
-  const termCols = process.stdout.columns ?? 80;
+  const termCols = cli.capabilities.columns;
   return cli.format(
     <Box width={termCols}>
       <SubHelp doc={doc} />
@@ -270,7 +271,7 @@ const formatSubHelp = (cli: CliKitService, doc: HelpDoc) => {
 const MIN_LOGO_COLS = 20;
 
 export const formatRootHelp = (cli: CliKitService, doc: HelpDoc) => {
-  const termCols = process.stdout.columns ?? 80;
+  const termCols = cli.capabilities.columns;
 
   // First pass: render the text alone to measure its exact footprint (post
   // ANSI codes and wrapping), then size the logo into the leftover space.
@@ -329,13 +330,13 @@ export const formatRootHelp = (cli: CliKitService, doc: HelpDoc) => {
   );
 };
 
-const formatErrorLine = (message: string) =>
-  `${paint(ansiFg(theme.color.danger), `${theme.glyph.error} error:`)} ${message}`;
-
 export const brandedCliFormatter = (
   cli: CliKitService,
 ): CliOutput.Formatter => {
   const fallback = CliOutput.defaultFormatter();
+  const glyphs = glyphsFor(cli.capabilities.unicode);
+  const formatErrorLine = (message: string) =>
+    `${paint(ansiFg(theme.color.danger), `${glyphs.error} error:`)} ${message}`;
   return {
     ...fallback,
     formatHelpDoc: (doc) =>
@@ -343,13 +344,13 @@ export const brandedCliFormatter = (
         ? formatRootHelp(cli, doc)
         : formatSubHelp(cli, doc),
     formatVersion: (name, version) =>
-      `${paint(ansiFg(theme.color.brand), "●")} ${paint(ANSI_BOLD, name)} ${paint(ANSI_DIM, `v${version}`)}`,
+      `${paint(ansiFg(theme.color.brand), glyphs.selected)} ${paint(ANSI_BOLD, name)} ${paint(ANSI_DIM, `v${version}`)}`,
     formatError: (error) => `\n${formatErrorLine(error.message)}`,
     formatErrors: (errors) => {
       if (errors.length === 0) return "";
       if (errors.length === 1) return `\n${formatErrorLine(errors[0].message)}`;
       return `\n${formatErrorLine(`${errors.length} problems`)}\n${errors
-        .map((error) => `  ${paint(ANSI_DIM, "·")} ${error.message}`)
+        .map((error) => `  ${paint(ANSI_DIM, glyphs.bullet)} ${error.message}`)
         .join("\n")}`;
     },
   };

@@ -7,7 +7,7 @@ import * as Semaphore from "effect/Semaphore";
 import { Box, render, Static } from "ink";
 import { type ReactNode, useSyncExternalStore } from "react";
 import { Alert, Spinner, Status } from "./components/Feedback.tsx";
-import { CliEnvironment } from "./components/Environment.tsx";
+import { CliEnvironment, useGlyphs } from "./components/Environment.tsx";
 import { useTerminalInput } from "./components/Interactive.tsx";
 import { interceptConsole } from "./components/Live.tsx";
 import { Heading } from "./components/Layout.tsx";
@@ -243,16 +243,19 @@ const ScreenCancelGuard = ({
   return <>{children}</>;
 };
 
-const ItemView = ({ item }: { readonly item: Item }) => (
-  <Box paddingLeft={item.depth * 2} gap={1}>
-    {item.depth === 0 ? null : (
-      <Text color={theme.color.muted}>{theme.glyph.bar}</Text>
-    )}
-    <Box flexDirection="column" flexGrow={1}>
-      {item.view}
+const ItemView = ({ item }: { readonly item: Item }) => {
+  const glyphs = useGlyphs();
+  return (
+    <Box paddingLeft={item.depth * 2} gap={1}>
+      {item.depth === 0 ? null : (
+        <Text color={theme.color.muted}>{glyphs.bar}</Text>
+      )}
+      <Box flexDirection="column" flexGrow={1}>
+        {item.view}
+      </Box>
     </Box>
-  </Box>
-);
+  );
+};
 
 const TerminalRoot = ({ store }: { readonly store: TerminalStore }) => {
   const state = useSyncExternalStore(store.subscribe, store.snapshot);

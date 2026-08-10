@@ -14,7 +14,7 @@ export interface StatusProps {
 export const Status = ({ variant = "info", children, detail }: StatusProps) => {
   const glyphs = useGlyphs();
   return (
-    <Box gap={1}>
+    <Box gap={1} flexWrap="wrap">
       <Text color={statusColor(variant)}>{glyphs[variant]}</Text>
       <Text color={variant === "error" ? statusColor(variant) : undefined}>
         {children}

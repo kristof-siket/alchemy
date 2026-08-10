@@ -494,6 +494,7 @@ export const InlineConfirm = ({
   readonly onCancel?: () => void;
 }) => {
   const focused = useFocus();
+  const keys = useKeyGlyphs();
   const [value, setValue] = useState(initialValue);
   useTerminalInput(
     (input, key) => {
@@ -508,9 +509,17 @@ export const InlineConfirm = ({
     { active: active ?? focused },
   );
   return (
-    <Box flexDirection="column">
+    <Box flexDirection="column" gap={1}>
       <Text bold>{message}</Text>
       <BooleanChoice value={value} />
+      <KeyBar
+        keys={[
+          [keys.leftRight, "choose"],
+          [keys.yesNo, "choose"],
+          [keys.enter, "confirm"],
+          [keys.escape, "cancel"],
+        ]}
+      />
     </Box>
   );
 };
@@ -572,12 +581,13 @@ export const ExternalWait = ({
       }
       return;
     }
+    const shortcut = input.toLowerCase();
     if (key.enter) setManual(true);
     else if (key.escape) onCancel();
     // Ctrl+C must fall through to the runner's cancel guard, not copy the URL.
     else if (key.ctrl || key.meta) return;
-    else if (input === "u") setShowFull((current) => !current);
-    else if (input === "c" && url !== undefined) {
+    else if (shortcut === "u") setShowFull((current) => !current);
+    else if (shortcut === "c" && url !== undefined) {
       copyToClipboard(url, stdout ?? process.stdout);
       setCopied(true);
       clearTimeout(copiedTimer.current);
@@ -589,7 +599,10 @@ export const ExternalWait = ({
       <PromptFrame
         message={inputLabel}
         error={error}
-        keys={[[keyGlyphs.escape, "back to waiting"]]}
+        keys={[
+          [keyGlyphs.enter, "confirm"],
+          [keyGlyphs.escape, "back to waiting"],
+        ]}
       >
         <TextField
           placeholder={placeholder}

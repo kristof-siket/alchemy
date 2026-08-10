@@ -325,7 +325,13 @@ export function PlanProgress(props: PlanProgressProps): JSX.Element {
           <Box key={row.key} flexDirection="column">
             <TaskRow
               spinning={running}
-              icon={task.status === "fail" ? glyphs.error : glyphs.success}
+              icon={
+                task.status === "pending"
+                  ? glyphs.bullet
+                  : task.status === "fail"
+                    ? glyphs.error
+                    : glyphs.success
+              }
               iconColor={color}
               label={task.id}
               detail={`(${task.type})`}
@@ -370,9 +376,9 @@ function taskIcon(
   if (status === "ran")
     return action === "noop" ? glyphs.bullet : glyphs.success;
   if (status === "deleted" || status === "retained") return glyphs.success;
-  if (action === "delete") return actionStyle.delete.icon;
-  if (action === "noop") return actionStyle.noop.icon;
-  return actionStyle.run.icon;
+  if (action === "delete") return glyphs[actionStyle.delete.icon];
+  if (action === "noop") return glyphs[actionStyle.noop.icon];
+  return glyphs[actionStyle.run.icon];
 }
 
 const findCrudByLogicalId = (

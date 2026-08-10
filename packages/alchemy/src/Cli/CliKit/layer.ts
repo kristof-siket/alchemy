@@ -17,7 +17,9 @@ const resolveCapabilities = (options: CliKitOptions): CliKitCapabilities => {
     colors:
       options.colors ??
       (process.env.NO_COLOR === undefined &&
-        (stdout.hasColors?.() ?? stdout.isTTY === true)),
+        ((process.env.FORCE_COLOR !== undefined &&
+          process.env.FORCE_COLOR !== "0") ||
+          (stdout.hasColors?.() ?? stdout.isTTY === true))),
     unicode: options.unicode ?? process.env.TERM !== "dumb",
   };
 };

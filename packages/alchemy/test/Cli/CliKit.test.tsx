@@ -32,6 +32,7 @@ import {
 } from "@/Cli/CliKit/components.ts";
 import type { CliKitService } from "@/Cli/CliKit/CliKit.ts";
 import { makeRuntime } from "@/Cli/CliKit/InkRuntime.tsx";
+import { isInProgress } from "@/Cli/views/statusStyle.ts";
 import { makeResourceOutput } from "@/Cli/Output.ts";
 import * as Effect from "effect/Effect";
 import * as Fiber from "effect/Fiber";
@@ -159,6 +160,14 @@ it.effect("preserves zero in primitive-array views", () =>
     expect(rendered).toBe("count: 0");
   }),
 );
+
+it("does not animate work before it starts", () => {
+  expect(isInProgress("pending")).toBe(false);
+  expect(isInProgress("creating")).toBe(true);
+  expect(isInProgress("updating")).toBe(true);
+  expect(isInProgress("deleting")).toBe(true);
+  expect(isInProgress("running")).toBe(true);
+});
 
 it.effect("prints tables and nested sections through one service", () =>
   Effect.gen(function* () {
@@ -457,7 +466,9 @@ it.effect("does not decorate resource stderr as a semantic failure", () =>
     yield* live.close;
 
     const rendered = stripAnsi(stdout.output);
-    expect(rendered).toContain("www │ [FILE_NAME_CONFLICT] warning");
+    expect(rendered).toContain(
+      `${stripAnsi(linePrefix("www"))} [FILE_NAME_CONFLICT] warning`,
+    );
     expect(rendered).not.toContain("✖");
   }),
 );
@@ -572,6 +583,31 @@ it.effect("erases the multi-select filter with the terminal DEL byte", () =>
   }),
 );
 
+it.effect("filters searchable selects without stealing Enter", () =>
+  Effect.gen(function* () {
+    const stdin = new InputStream();
+    const { service } = yield* makeLive({ stdin });
+
+    const fiber = yield* service
+      .select({
+        message: "pick",
+        searchable: true,
+        options: [
+          { value: "alpha", label: "alpha" },
+          { value: "beta", label: "beta" },
+        ],
+      })
+      .pipe(Effect.forkChild);
+    yield* Effect.promise(() => stdin.ready);
+    yield* Effect.sync(() => stdin.write("bet"));
+    yield* settleInput;
+    yield* Effect.sync(() => stdin.write("\r"));
+    const result = yield* Fiber.join(fiber);
+
+    expect(result).toBe("beta");
+  }),
+);
+
 it.effect("toggles every visible multi-select choice on ctrl+a", () =>
   Effect.gen(function* () {
     const stdin = new InputStream();
@@ -594,6 +630,26 @@ it.effect("toggles every visible multi-select choice on ctrl+a", () =>
     const result = yield* Fiber.join(fiber);
 
     expect(result).toEqual(["alpha", "beta"]);
+  }),
+);
+
+it.effect("returns an explicit undefined menu back target on Escape", () =>
+  Effect.gen(function* () {
+    const stdin = new InputStream();
+    const { service } = yield* makeLive({ stdin });
+
+    const fiber = yield* service
+      .menu<string | undefined>({
+        message: "pick",
+        back: undefined,
+        options: [{ value: "alpha", label: "alpha" }],
+      })
+      .pipe(Effect.forkChild);
+    yield* Effect.promise(() => stdin.ready);
+    yield* Effect.sync(() => stdin.write("\x1b"));
+    const result = yield* Fiber.join(fiber);
+
+    expect(result).toBe(undefined);
   }),
 );
 
